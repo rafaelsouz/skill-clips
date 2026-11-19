@@ -256,14 +256,14 @@ def baixar_trecho(pasta, url, s, e, destino):
     try:
         rodar(ytdlp() + ["-f", FORMATO, "--no-playlist", "--no-warnings", "-q", "--download-sections",
                          f"*{s:.2f}-{e:.2f}", "--force-keyframes-at-cuts", "--merge-output-format", "mp4",
-                         "-o", str(destino), url], timeout=1800)
+                         "-o", str(destino), "--", url], timeout=1800)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         pass
     if destino.exists() and tem_video(destino):
         return
     destino.unlink(missing_ok=True)
     print("      tentando de outro jeito (pulando direto pro minuto do corte)…", flush=True)
-    r = subprocess.run(ytdlp() + ["-f", FORMATO, "-g", "--no-playlist", "--no-warnings", url],
+    r = subprocess.run(ytdlp() + ["-f", FORMATO, "-g", "--no-playlist", "--no-warnings", "--", url],
                        capture_output=True, text=True)
     links = [l for l in r.stdout.split() if l.startswith("http")]
     if links:

@@ -18,7 +18,7 @@ import time
 import wave
 from pathlib import Path
 
-from comum import (BLOCO_MIN, TRABALHO, gravar_json, hms, ler_json, motivo_trancada, rodar, slug, ytdlp)
+from comum import (BLOCO_MIN, TRABALHO, gravar_json, hms, ler_json, motivo_trancada, rodar, slug, url_segura, ytdlp)
 
 PEDACO = 600  # escuta 10 minutos por vez e guarda: se parar no meio, continua dali
 LINKS = TRABALHO / "links.json"
@@ -27,11 +27,12 @@ LINKS = TRABALHO / "links.json"
 # ---------------------------------------------------------------- ler a live (rápido, em primeiro plano)
 def ler_live(url):
     """Lê título, duração e situação da live. Sai com aviso claro quando não dá pra baixar."""
+    url_segura(url)
     links = ler_json(LINKS, {})
     if url in links and (TRABALHO / links[url] / "info.json").exists():
         return TRABALHO / links[url]
     print(f"\n[1/4] Lendo a live: {url}", flush=True)
-    r = subprocess.run(ytdlp() + ["-J", "--no-playlist", "--no-warnings", url], capture_output=True, text=True)
+    r = subprocess.run(ytdlp() + ["-J", "--no-playlist", "--no-warnings", "--", url], capture_output=True, text=True)
     if r.returncode != 0:
         motivo = motivo_trancada(r.stderr)
         if motivo:
@@ -81,12 +82,12 @@ def baixar_audio(pasta):
         rodar(ytdlp() + ["-f", "ba/b", "-x", "--no-playlist", "--no-warnings", "-q", "--progress", "--newline",
                          "--progress-delta", "15", "--progress-template",
                          "download:      baixado %(progress._percent_str)s", "--continue",
-                         "-o", str(pasta / "audio.%(ext)s"), url])
+                         "-o", str(pasta / "audio.%(ext)s"), "--", url])
     if (info.get("extractor_key") or "").lower().startswith("youtube") and not (pasta / "chat.feito").exists():
         print("      pegando o replay do chat (se a live tiver)…", flush=True)
         try:
             rodar(ytdlp() + ["--skip-download", "--write-subs", "--sub-langs", "live_chat", "--no-warnings", "-q",
-                             "-o", str(pasta / "chat"), url], timeout=900)
+                             "-o", str(pasta / "chat"), "--", url], timeout=900)
         except Exception as e:  # sem chat não é erro: só não tem a marca [CHAT]
             print(f"      sem replay de chat ({type(e).__name__})", flush=True)
         (pasta / "chat.feito").write_text("ok")

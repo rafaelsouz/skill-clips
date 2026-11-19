@@ -21,11 +21,12 @@ from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
 sys.path.insert(0, str(AQUI))
-from comum import CASA, CORTES, MODELOS, TRABALHO, YUNET, YUNET_URL, ffmpeg_embutido, hms, ler_json, pasta_da_live, tem  # noqa: E402
+from comum import (CASA, CORTES, MODELOS, TRABALHO, YUNET, YUNET_URL, ffmpeg_embutido, hms, ler_json,  # noqa: E402
+                   modelo_confere, pasta_da_live, tem)
 
 VENV = CASA / "ambiente"
 VENV_PY = VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-PACOTES = ["faster-whisper", "opencv-python-headless", "numpy", "yt-dlp[default]", "certifi", "static-ffmpeg", "deno"]
+REQUISITOS = AQUI.parent / "requirements.txt"  # versões fixas: nada de "--upgrade" nem pacote novo sem querer
 
 
 def no_ambiente():
@@ -58,9 +59,10 @@ def instalar(_):
         if not VENV_PY.exists():
             print("  … criando o ambiente do clipper em", VENV)
             subprocess.run([sys.executable, "-m", "venv", str(VENV)], check=True)
-        print("  … instalando pacotes:", ", ".join(PACOTES))
-        subprocess.run([str(VENV_PY), "-m", "pip", "install", "-q", "--upgrade", "pip"], check=True)
-        subprocess.run([str(VENV_PY), "-m", "pip", "install", "-q", "--upgrade", *PACOTES], check=True)
+        print("  … instalando pacotes nas versões fixas de", REQUISITOS.name)
+        # --only-binary: só pacote pronto (wheel), nunca roda setup.py de código baixado
+        subprocess.run([str(VENV_PY), "-m", "pip", "install", "-q", "--only-binary=:all:", "-r", str(REQUISITOS)],
+                       check=True)
         print("  ✓ pacotes do Python")
         if tem("ffmpeg") and tem("ffprobe"):
             print("  ✓ ffmpeg")
@@ -83,6 +85,9 @@ def instalar(_):
                             "c=ssl.create_default_context(cafile=certifi.where());"
                             "open(sys.argv[2],'wb').write(u.urlopen(sys.argv[1],context=c).read())",
                             YUNET_URL, str(YUNET)], check=True)
+        if not modelo_confere():  # arquivo diferente do que foi conferido: apaga e não usa
+            YUNET.unlink(missing_ok=True)
+            sys.exit("O detector de rosto baixado não bate com o hash esperado. Apaguei. Não vou usar.")
     print("  ✓ detector de rosto")
     if "python" not in falta:
         print("  … baixando os modelos de escuta (base e small, uma vez só)")
@@ -118,13 +123,14 @@ GTA5 = __import__("re").compile(r"gta\s*-?\s*(5|v|iv|4|rp)(?![0-9a-z])", 2)
 
 def buscar(a):
     import json
+    from urllib.parse import quote_plus
     from comum import ytdlp
     # filtros oficiais da busca do YouTube: "Hoje" + "Mais de 20 minutos"
     filtro = "EgQIAhgC"
     vistos = {}
     for termo in a.termos:
-        url = f"https://www.youtube.com/results?search_query={termo.replace(' ', '+')}&sp={filtro}"
-        r = subprocess.run(ytdlp() + ["--flat-playlist", "-J", "--playlist-end", "40", "--no-warnings", url],
+        url = f"https://www.youtube.com/results?search_query={quote_plus(termo)}&sp={filtro}"
+        r = subprocess.run(ytdlp() + ["--flat-playlist", "-J", "--playlist-end", "40", "--no-warnings", "--", url],
                            capture_output=True, text=True)
         try:
             itens = json.loads(r.stdout).get("entries", [])
@@ -140,7 +146,7 @@ def buscar(a):
         if len(lista) >= a.quantas:
             break
         # pula live trancada (idade, membros, privada) e live que ainda está ao vivo
-        r = subprocess.run(ytdlp() + ["--print", "%(live_status)s", "--no-warnings", "-q",
+        r = subprocess.run(ytdlp() + ["--print", "%(live_status)s", "--no-warnings", "-q", "--",
                                       f"https://www.youtube.com/watch?v={v['id']}"], capture_output=True, text=True)
         situacao = r.stdout.strip()
         if r.returncode == 0 and situacao not in ("is_live", "is_upcoming", "post_live"):

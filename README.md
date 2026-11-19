@@ -44,16 +44,17 @@ Sem terminal. Os cortes saem mais rápido e as escolhas ficam bem melhores.
 
 ### Colocando a skill (e atualizando)
 
-Cole no Claude Code:
+> **Cópia local blindada.** Esta pasta é a única fonte: os instaladores não baixam a skill nem rodam script remoto,
+> os pacotes estão em versões fixas (`requirements.txt`) e `verificar.py` confere se algum arquivo foi alterado.
+> A versão original (baixa `main` do GitHub e roda `irm | iex`) foi removida de propósito.
 
-> instala essa skill e monta o clipper do GTA 6: https://github.com/davixavier-coder/skill-clips
+Confira a integridade e instale a partir desta pasta:
 
-Se a IA ficar em loop ou der erro, cole o comando direto (serve também pra **atualizar**):
+- **Windows (PowerShell):** `python "$HOME\.claude\skills\clipper-gta6\verificar.py"` e depois
+  `& "$HOME\.claude\skills\clipper-gta6\instalar.ps1"`
+- **Mac/Linux:** `python3 ~/.claude/skills/clipper-gta6/verificar.py` e depois `bash ~/.claude/skills/clipper-gta6/instalar.sh`
 
-- **Mac:** `curl -fsSL https://raw.githubusercontent.com/davixavier-coder/skill-clips/main/instalar.sh | bash`
-- **Windows (PowerShell):** `irm https://raw.githubusercontent.com/davixavier-coder/skill-clips/main/instalar.ps1 | iex`
-
-Ele baixa a skill, confere o que falta no seu computador, instala sozinho (inclusive o ffmpeg) e avisa quando tá pronto.
+Atualizar = trocar os arquivos aqui, **à mão e lendo o que mudou**, e depois rodar `verificar.py --gravar`.
 
 ### Avisos
 

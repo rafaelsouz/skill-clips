@@ -15,7 +15,24 @@ MODELOS = CASA / "modelos"     # o detector de rosto (baixado no setup)
 YUNET = MODELOS / "face_detection_yunet_2023mar.onnx"
 YUNET_URL = ("https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/"
              "face_detection_yunet_2023mar.onnx")
+YUNET_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"  # conferido em 2026-11-18
 BLOCO_MIN = 12  # a IA lê a transcrição 12 minutos por vez
+
+
+def modelo_confere():
+    """O detector de rosto baixado tem que ser exatamente o arquivo conferido (a URL do GitHub aponta pra 'main')."""
+    import hashlib
+    try:
+        return hashlib.sha256(YUNET.read_bytes()).hexdigest() == YUNET_SHA256
+    except OSError:
+        return False
+
+
+def url_segura(url):
+    """Só aceita http(s) sem espaços. Um 'link' começando com '-' viraria opção do yt-dlp (ex.: --exec)."""
+    if not re.fullmatch(r"https?://[^\s\"'<>`|&;$]+", str(url or "")):
+        sys.exit("\n  ✗ Isso não parece um link http(s) de live. Cole o link inteiro, começando com https://")
+    return url
 
 
 def slug(texto, limite=60):

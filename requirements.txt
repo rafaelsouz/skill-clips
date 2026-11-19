@@ -1,0 +1,21 @@
+# Versões fixas (as que foram conferidas neste computador em 2026-11-18).
+# Nada de "--upgrade": o instalar só instala exatamente isto. Para atualizar, troque a versão aqui de propósito.
+# Obs.: o yt-dlp quebra quando o YouTube muda; se parar de baixar, suba só a versão dele depois de conferir.
+faster-whisper==1.2.1
+opencv-python-headless==5.1.0.95
+numpy==2.5.5
+yt-dlp[default]==2026.10.26
+yt-dlp-ejs==0.8.0
+certifi==2026.10.23
+static-ffmpeg==3.0
+deno==2.9.8
+# dependências de peso, fixadas também pra não mudarem sozinhas
+ctranslate2==4.9.0
+onnxruntime==1.32.0
+huggingface_hub==2.4.0
+tokenizers==0.23.3
+av==19.0.2
+requests==2.34.2
+urllib3==2.8.0
+idna==3.20
+charset-normalizer==3.5.2
