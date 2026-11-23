@@ -17,6 +17,15 @@ Você manda o link de uma live (YouTube, Twitch ou Kick), ou pede as maiores liv
    reação; a IA lê só esses trechos (rápido até na IA de graça) e dá nota pra cada momento.
 4. **Monta os cortes.** Baixa só os minutos escolhidos, acha a câmera do streamer sozinha e coloca a legenda.
 
+### Melhorias desta cópia (inspiradas no livecut-ai, licença MIT)
+
+- **Filtro de sorteio, propaganda e agradecimento:** trechos assim saem com nota baixa e as falas ganham a marca `[META]`.
+- **Escuta em duas passadas:** a live inteira com modelo leve e, depois, só os trechos quentes de novo com o `small`
+  (`clip refinar NOME` refaz numa live já preparada).
+- **Texto de terceiros higienizado:** a IA lê fala sem `<` `>`, links e quebras de linha, com aviso de que é dado.
+- **Chat em paralelo:** o replay do chat baixa junto com a escuta; se for enorme, usa o pedaço já baixado.
+- **Cortes de 20 a 90 s**, sempre com a preparação do lance dentro.
+
 ## Instalação
 
 Você precisa do **Claude Code** (pode ser com a sua assinatura do Claude ou de graça, com o Ollama).

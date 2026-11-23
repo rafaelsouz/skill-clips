@@ -28,6 +28,35 @@ def modelo_confere():
         return False
 
 
+_CTRL = re.compile(r"[\x00-\x1f\x7f<>]")
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+
+
+def limpar_texto(texto, limite=200):
+    """Texto de terceiros (fala da live, chat) ou saída da IA: sem quebra de linha, sem < >, sem links e com
+    tamanho limitado. A fala da live é DADO pra entender o momento, nunca instrução (prompt injection)."""
+    t = _URL.sub("", _CTRL.sub(" ", str(texto if texto is not None else "")))
+    return re.sub(r"\s+", " ", t).strip()[:limite]
+
+
+# fala que não é momento: sorteio, propaganda, agradecimento em massa, papo com o chat sobre a própria live.
+# O chat lota nesses trechos e o streamer grita ("7 MILHÕES!"), mas não rende corte.
+LIXO_RE = re.compile("|".join([
+    r"sorte(?:io|ia|ar|ando|ado|ada|ados)", r"sortei", r"giveaway", r"ganhador\w*", r"vencedor\w*", r"cupom",
+    r"c[oó]digo", r"promocional", r"resgat\w+", r"\bpix\b", r"link (?:na|da|no) (?:bio|descri\w+|chat)",
+    r"inscre(?:va|vam|ve)\b", r"se inscrev\w+", r"patrocin\w+", r"\bpubli\b", r"\bdoa[cç]\w+",
+    r"obrigad[oa],? (?:a |pela|pelo|por |galera|gente|todo|todos|pessoal)", r"muito obrigad[oa]",
+    r"milh(?:ões|ão|oes|ao) de (?:views|visualiza\w+|pessoas|inscritos)", r"mil pessoas na live",
+    r"(?:deixa|deixe|deixar) (?:o|seu|um) like", r"\b(?:nessa|nesta|nossa|minha|essa) live\b",
+    r"fechar (?:a )?live", r"reabrir", r"\b(?:no|do|o) chat\b", r"subscribe", r"donat\w+", r"sponsor\w*",
+    r"promo code", r"thank(?:s| you) (?:guys|everyone|so much|all|for)",
+]), re.IGNORECASE)
+
+
+def e_lixo(texto):
+    return bool(LIXO_RE.search(texto or ""))
+
+
 def url_segura(url):
     """Só aceita http(s) sem espaços. Um 'link' começando com '-' viraria opção do yt-dlp (ex.: --exec)."""
     if not re.fullmatch(r"https?://[^\s\"'<>`|&;$]+", str(url or "")):

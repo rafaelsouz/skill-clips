@@ -5,6 +5,7 @@ Comandos (depois do instalar, use o atalho ~/clipper-gta6/clip no lugar de "clip
   clip instalar                       confere e instala tudo que falta (também atualiza)
   clip buscar [--quantas 7]           acha as maiores lives de GTA 6 de hoje que já acabaram
   clip preparar LINK [LINK…]          baixa o áudio, escuta e separa os trechos mais quentes (candidatos.txt)
+  clip refinar LIVE [--modelo small]  escuta de novo só os trechos quentes com modelo melhor (refaz candidatos.txt)
   clip escolher LIVE [--manter 3]     junta os momentos que a IA escreveu e fica com os melhores
   clip fazer LIVE                     monta os cortes (câmera em cima, jogo embaixo, título, legenda)
   clip automatico LINK [--quantos 3]  tudo sozinho, sem a IA ler (títulos mais simples)
@@ -187,13 +188,25 @@ def preparar(a):
     from ouvir import ler_live
     for link in a.links:
         pasta = ler_live(link)
-        argv = [str(pasta), a.modelo or "", a.idioma or "", str(a.trechos)]
+        argv = [str(pasta), a.modelo or "", a.idioma or "", str(a.trechos), "0" if a.sem_refino else "1"]
         if not _rodar_trabalho(pasta, "preparar", argv, a.esperar):
             return
         print(f"\nPRONTO PRA ESCOLHER: {pasta.name}")
         print(f"  Leia: {pasta / 'candidatos.txt'}")
         print(f"  Escreva os momentos em: {pasta / 'momentos' / 'candidatos.json'}")
         print(f"  Depois rode: escolher {pasta.name} --manter 3   (ou 5, ou quantos a pessoa pediu)")
+
+
+def refinar(a):
+    """Escuta de novo, com um modelo melhor, só os trechos quentes de uma live já preparada (refaz o candidatos.txt)."""
+    import tarefa
+    pasta = pasta_da_live(a.live)
+    if not (pasta / "candidatos.json").exists():
+        sys.exit("Essa live ainda não terminou de ser escutada. Rode antes: preparar LINK")
+    if a.refazer:
+        tarefa.limpar(pasta, "refinar")
+    if _rodar_trabalho(pasta, "refinar", [str(pasta), a.modelo or "small"], a.esperar):
+        print(f"\nREFINADO: releia {pasta / 'candidatos.txt'} (agora com a escuta mais precisa)")
 
 
 def escolher(a):
@@ -240,7 +253,11 @@ def _trabalho(a):
     if a.nome == "preparar":
         from ouvir import trabalho_preparar
         modelo, idioma, trechos = (a.args[1] or None), (a.args[2] or None), int(a.args[3] or 12)
-        tarefa.executar(pasta, "preparar", lambda: trabalho_preparar(pasta, modelo, idioma, trechos))
+        refino = (a.args[4] if len(a.args) > 4 else "1") != "0"
+        tarefa.executar(pasta, "preparar", lambda: trabalho_preparar(pasta, modelo, idioma, trechos, refino))
+    elif a.nome == "refinar":
+        from ouvir import refinar as refina
+        tarefa.executar(pasta, "refinar", lambda: refina(pasta, a.args[1] or "small"))
     elif a.nome == "fazer":
         from cortar import fazer as faz
         tarefa.executar(pasta, "fazer", lambda: faz(pasta, a.args[1] or "small"))
@@ -258,7 +275,7 @@ def status(_):
         nm = len(list((p / "momentos").glob("bloco_*.json")))
         esc = ler_json(p / "escolhidos.json", {}).get("cortes")
         prontos = len(list((CORTES / p.name).glob("corte_*.mp4")))
-        rodando = [n for n in ("preparar", "fazer") if (p / f".{n}.pid").exists()]
+        rodando = [n for n in ("preparar", "refinar", "fazer") if (p / f".{n}.pid").exists()]
         escutado = "sim" if (p / "candidatos.txt").exists() else f"{len(list((p / 'escuta').glob('*.json')))} partes"
         print(f"{p.name}\n  {info.get('title', '')}\n  escutada: {escutado} | escolhidos: "
               f"{len(esc) if esc else 0} | cortes prontos: {prontos}"
@@ -300,7 +317,14 @@ def main():
     p.add_argument("--idioma", default=None, help="pt, en… (vazio = detecta sozinho)")
     p.add_argument("--trechos", type=int, default=12, help="quantos trechos quentes a IA vai ler")
     p.add_argument("--esperar", type=int, default=None, help="segundos acompanhando antes de devolver")
+    p.add_argument("--sem-refino", action="store_true", help="não escuta de novo os trechos quentes com modelo melhor")
     p.set_defaults(f=preparar)
+    r = sub.add_parser("refinar")
+    r.add_argument("live")
+    r.add_argument("--modelo", default=None, help="modelo do refino (padrão: small)")
+    r.add_argument("--refazer", action="store_true", help="refaz mesmo que já tenha refinado")
+    r.add_argument("--esperar", type=int, default=None)
+    r.set_defaults(f=refinar)
     e = sub.add_parser("escolher")
     e.add_argument("live")
     e.add_argument("--manter", type=int, default=3)

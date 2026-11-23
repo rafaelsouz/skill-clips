@@ -9,7 +9,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from comum import (CORTES, YUNET, gravar_json, hms, ler_json, rodar, segundos, ytdlp)  # noqa: F401
+from comum import (CORTES, YUNET, gravar_json, hms, ler_json, limpar_texto, rodar, segundos, ytdlp)  # noqa: F401
 
 FONTES = Path(__file__).resolve().parent.parent / "fontes"
 L, A = 1080, 1920          # vídeo vertical
@@ -55,7 +55,9 @@ def _campo(m, nome):
 
 
 def _titulo_auto(pasta, s, e):
-    trans = ler_json(pasta / "transcricao.json", {}).get("segmentos", [])
+    # prefere a escuta refinada (modelo melhor nos trechos quentes) quando existir
+    trans = (ler_json(pasta / "transcricao_refinada.json", None)
+             or ler_json(pasta / "transcricao.json", {})).get("segmentos", [])
     falas = [t for a, b, t in trans if s <= a <= e and len(t.split()) >= 3]
     if not falas:
         return "OLHA O QUE ACONTECEU NA LIVE"
@@ -77,7 +79,7 @@ def momentos_automaticos(pasta):
     return out
 
 
-def escolher(pasta, manter=3, minimo=20, maximo=60, auto=False):
+def escolher(pasta, manter=3, minimo=20, maximo=90, auto=False):
     dur_live = float(ler_json(pasta / "info.json", {}).get("duration") or 10 ** 7)
     brutos, ruins = [], []
     for arq in sorted((pasta / "momentos").glob("*.json")):
@@ -108,8 +110,9 @@ def escolher(pasta, manter=3, minimo=20, maximo=60, auto=False):
             nota = float(str(_campo(m, "nota") or 70).split("/")[0])
         except ValueError:
             nota = 70.0
-        titulo = str(_campo(m, "titulo") or "").strip() or _titulo_auto(pasta, s, e)
-        post = str(_campo(m, "post") or "").strip()
+        # título e legenda do post vêm da IA, que leu fala de terceiros: sem links nem < >, tamanho limitado
+        titulo = limpar_texto(_campo(m, "titulo") or "", 70) or _titulo_auto(pasta, s, e)
+        post = limpar_texto(_campo(m, "post") or "", 400)
         if "#gta6" not in post.lower():
             post = (post + " #gta6 #gtavi #gta #cortes").strip()
         todos.append({**m, "titulo": titulo, "post": post, "nota": nota, "_s": s, "_e": e, "_bloco": origem})
