@@ -3,11 +3,13 @@
 
 Comandos (depois do instalar, use o atalho ~/clipper-gta6/clip no lugar de "clip.py"):
   clip instalar                       confere e instala tudo que falta (também atualiza)
-  clip buscar [--quantas 7]           acha as maiores lives de GTA 6 de hoje que já acabaram
+  clip buscar [--quantas 7] [--dias 2] acha as maiores lives de GTA 6 que já acabaram (--dias 2 = ontem e hoje)
   clip preparar LINK [LINK…]          baixa o áudio, escuta e separa os trechos mais quentes (candidatos.txt)
   clip refinar LIVE [--modelo small]  escuta de novo só os trechos quentes com modelo melhor (refaz candidatos.txt)
   clip escolher LIVE [--manter 3]     junta os momentos que a IA escreveu e fica com os melhores
-  clip fazer LIVE                     monta os cortes (câmera em cima, jogo embaixo, título, legenda)
+  clip traduzir LIVE                  separa as falas de cada corte pra IA traduzir pra PT-BR (live em outro idioma)
+  clip marca [@perfil]                mostra ou define o @ da conta que vira marca d'água em todo vídeo
+  clip fazer LIVE                     monta os cortes (câmera em cima, jogo embaixo, título, legenda em PT-BR)
   clip automatico LINK [--quantos 3]  tudo sozinho, sem a IA ler (títulos mais simples)
   clip status                         mostra em que passo cada live está
 
@@ -126,8 +128,10 @@ def buscar(a):
     import json
     from urllib.parse import quote_plus
     from comum import ytdlp
-    # filtros oficiais da busca do YouTube: "Hoje" + "Mais de 20 minutos"
-    filtro = "EgQIAhgC"
+    from datetime import datetime, timedelta
+    # filtros oficiais da busca do YouTube: ("Hoje" ou "Esta semana") + "Mais de 20 minutos"
+    filtro = "EgQIAhgC" if a.dias <= 1 else "EgQIAxgC"
+    desde = (datetime.now() - timedelta(days=max(a.dias, 1) - 1)).strftime("%Y%m%d")  # 2 dias = ontem e hoje
     vistos = {}
     for termo in a.termos:
         url = f"https://www.youtube.com/results?search_query={quote_plus(termo)}&sp={filtro}"
@@ -143,25 +147,32 @@ def buscar(a):
                     and not GTA5.search(titulo)):
                 vistos[v["id"]] = v
     lista = []
-    for v in sorted(vistos.values(), key=lambda v: -(v.get("view_count") or 0))[: a.quantas * 3]:
+    for v in sorted(vistos.values(), key=lambda v: -(v.get("view_count") or 0))[: a.quantas * (3 if a.dias <= 1 else 8)]:
         if len(lista) >= a.quantas:
             break
-        # pula live trancada (idade, membros, privada) e live que ainda está ao vivo
-        r = subprocess.run(ytdlp() + ["--print", "%(live_status)s", "--no-warnings", "-q", "--",
-                                      f"https://www.youtube.com/watch?v={v['id']}"], capture_output=True, text=True)
-        situacao = r.stdout.strip()
+        # pula live trancada (idade, membros, privada), live ainda ao vivo e live fora do período pedido
+        r = subprocess.run(ytdlp() + ["--print", "%(live_status)s|%(upload_date)s|%(release_date)s", "--no-warnings",
+                                      "-q", "--", f"https://www.youtube.com/watch?v={v['id']}"],
+                           capture_output=True, text=True)
+        situacao, _, datas = r.stdout.strip().partition("|")
+        data = next((d for d in datas.split("|") if d.isdigit() and len(d) == 8), "")
         if r.returncode == 0 and situacao not in ("is_live", "is_upcoming", "post_live"):
+            if data and data < desde:
+                print(f"  (pulei '{(v.get('title') or '')[:55]}': de {data[6:]}/{data[4:6]}, fora do período)")
+                continue
+            v["_data"] = f"{data[6:]}/{data[4:6]}" if data else "?"
             lista.append(v)
         else:
             motivo = "ainda ao vivo" if situacao in ("is_live", "is_upcoming", "post_live") else "trancada"
             print(f"  (pulei '{(v.get('title') or '')[:55]}': {motivo})")
+    periodo = "de hoje" if a.dias <= 1 else f"dos últimos {a.dias} dias (desde {desde[6:]}/{desde[4:6]})"
     if not lista:
-        print("Não achei lives longas de GTA 6 publicadas hoje. Tente com um link direto.")
+        print(f"Não achei lives longas de GTA 6 {periodo}. Tente com um link direto.")
         return
-    print(f"As {len(lista)} maiores lives de GTA 6 de hoje:\n")
+    print(f"As {len(lista)} maiores lives de GTA 6 {periodo}:\n")
     for i, v in enumerate(lista, 1):
         print(f"  {i}. {v.get('title')}\n     {v.get('channel') or v.get('uploader')} | "
-              f"{hms(v.get('duration') or 0)} | {v.get('view_count') or 0:,} views\n"
+              f"{hms(v.get('duration') or 0)} | {v.get('view_count') or 0:,} views | publicada {v.get('_data')}\n"
               f"     https://www.youtube.com/watch?v={v['id']}\n".replace(",", "."))
 
 
@@ -217,21 +228,80 @@ def escolher(a):
         sys.exit("Essa live ainda não terminou de ser escutada. Rode antes: preparar LINK")
     esc(pasta, a.manter, auto=a.auto)
     tarefa.limpar(pasta, "fazer")  # escolheu de novo: o próximo 'fazer' monta o que mudou
+    tarefa.limpar(pasta, "traduzir")  # e as falas dos cortes novos precisam ser separadas de novo
     print(f"\nPróximo: fazer {pasta.name}")
 
 
-def fazer(a):
+def traduzir(a):
+    """Separa as falas de cada corte pra IA traduzir pra PT-BR (live em outro idioma). A IA escreve os pt.json."""
+    import tarefa
+    from comum import precisa_traduzir
+    if a.legenda:
+        os.environ["CLIPPER_LEGENDA_IDIOMA"] = a.legenda
     pasta = pasta_da_live(a.live)
     if not (pasta / "escolhidos.json").exists():
         sys.exit("Nenhum corte escolhido ainda. Rode antes: escolher " + pasta.name)
+    if a.refazer:
+        tarefa.limpar(pasta, "traduzir")
+    if not _rodar_trabalho(pasta, "traduzir", [str(pasta), a.modelo or "small"], a.esperar):
+        return
+    idioma = ler_json(pasta / "transcricao.json", {}).get("idioma")
+    if not precisa_traduzir(idioma):
+        print(f"\nNÃO PRECISA TRADUZIR: a live está em '{idioma}'. Rode: fazer {pasta.name}")
+        return
+    print(f"\nPRONTO PRA TRADUZIR: {pasta.name}")
+    for i, _ in enumerate(ler_json(pasta / "escolhidos.json", {}).get("cortes") or [], 1):
+        t = pasta / f"corte_{i:02d}"
+        print(f"  corte {i}: leia {t / 'falas.txt'}  e escreva  {t / 'pt.json'}")
+    print(f"  Depois rode: fazer {pasta.name}")
+
+
+def marca(a):
+    """Mostra ou define o @ da conta que vira marca d'água em todo vídeo (regra da skill)."""
+    from comum import CONFIG, definir_marca, marca_perfil
+    if a.perfil:
+        print(f"Marca definida: {definir_marca(a.perfil)}  (fica em {CONFIG}). Todo vídeo montado daqui pra frente leva essa marca.")
+    else:
+        m = marca_perfil()
+        print(f"Marca atual: {m}" if m else "Nenhuma marca definida ainda. Rode: marca @seu_perfil")
+
+
+def _exigir_marca(sem_marca):
+    """Regra: todo vídeo sai com a marca da conta. Sem marca definida, não monta (a menos que a pessoa peça --sem-marca)."""
+    if sem_marca:
+        os.environ["CLIPPER_SEM_MARCA"] = "1"
+        return
+    from comum import marca_perfil
+    if not marca_perfil():
+        sys.exit("\nFALTA A MARCA DA CONTA: todo vídeo leva o @ da conta como marca d'água.\n"
+                 "Rode: marca @seu_perfil   (ou monte sem marca com --sem-marca)")
+
+
+def fazer(a):
+    _exigir_marca(a.sem_marca)
+    if a.legenda:
+        os.environ["CLIPPER_LEGENDA_IDIOMA"] = a.legenda
+    from cortar import faltando_traducao
+    pasta = pasta_da_live(a.live)
+    if not (pasta / "escolhidos.json").exists():
+        sys.exit("Nenhum corte escolhido ainda. Rode antes: escolher " + pasta.name)
+    if faltando := faltando_traducao(pasta):
+        sys.exit("\nPRECISO DA TRADUÇÃO DAS LEGENDAS (PT-BR) antes de montar:\n  " + "\n  ".join(faltando)
+                 + f"\nRode: traduzir {pasta.name}, leia os falas.txt e escreva os pt.json (veja o SKILL.md).")
+    # trabalho já concluído: reavalia (só refaz o que mudou: título, momento, tradução ou jeito de montar).
+    # Só tira a marca de "feito"; se estiver rodando, o pid e o log ficam como estão.
+    (pasta / ".fazer.feito").unlink(missing_ok=True)
     if _rodar_trabalho(pasta, "fazer", [str(pasta), a.modelo or ""], a.esperar):
         from comum import CORTES
         print(f"\nCORTES PRONTOS em {CORTES / pasta.name} (cada .mp4 tem um .txt com a legenda do post)")
 
 
 def automatico(a):
-    """Tudo sozinho, sem a IA ler nada: escuta, pega os trechos mais quentes e monta. Pra IA fraca ou com pressa."""
+    """Tudo sozinho, sem a IA ler nada: escuta, pega os trechos mais quentes e monta. Pra IA fraca ou com pressa.
+    Sem a IA no meio não há tradução: as legendas ficam no idioma da live."""
     import tarefa
+    _exigir_marca(a.sem_marca)
+    os.environ["CLIPPER_LEGENDA_IDIOMA"] = "auto"
     from cortar import escolher as esc
     from ouvir import ler_live
     pasta = ler_live(a.link)
@@ -255,6 +325,9 @@ def _trabalho(a):
         modelo, idioma, trechos = (a.args[1] or None), (a.args[2] or None), int(a.args[3] or 12)
         refino = (a.args[4] if len(a.args) > 4 else "1") != "0"
         tarefa.executar(pasta, "preparar", lambda: trabalho_preparar(pasta, modelo, idioma, trechos, refino))
+    elif a.nome == "traduzir":
+        from cortar import traduzir as traduz
+        tarefa.executar(pasta, "traduzir", lambda: traduz(pasta, a.args[1] or "small"))
     elif a.nome == "refinar":
         from ouvir import refinar as refina
         tarefa.executar(pasta, "refinar", lambda: refina(pasta, a.args[1] or "small"))
@@ -275,7 +348,7 @@ def status(_):
         nm = len(list((p / "momentos").glob("bloco_*.json")))
         esc = ler_json(p / "escolhidos.json", {}).get("cortes")
         prontos = len(list((CORTES / p.name).glob("corte_*.mp4")))
-        rodando = [n for n in ("preparar", "refinar", "fazer") if (p / f".{n}.pid").exists()]
+        rodando = [n for n in ("preparar", "refinar", "traduzir", "fazer") if (p / f".{n}.pid").exists()]
         escutado = "sim" if (p / "candidatos.txt").exists() else f"{len(list((p / 'escuta').glob('*.json')))} partes"
         print(f"{p.name}\n  {info.get('title', '')}\n  escutada: {escutado} | escolhidos: "
               f"{len(esc) if esc else 0} | cortes prontos: {prontos}"
@@ -309,6 +382,7 @@ def main():
     sub.add_parser("instalar").set_defaults(f=instalar)
     b = sub.add_parser("buscar")
     b.add_argument("--quantas", type=int, default=7)
+    b.add_argument("--dias", type=int, default=1, help="1 = só hoje, 2 = ontem e hoje (até 7)")
     b.add_argument("--termos", nargs="+", default=["GTA 6 live", "GTA 6 ao vivo", "GTA VI stream"])
     b.set_defaults(f=buscar)
     p = sub.add_parser("preparar")
@@ -334,11 +408,24 @@ def main():
     f.add_argument("live")
     f.add_argument("--modelo", default="small", help="modelo da legenda dos cortes")
     f.add_argument("--esperar", type=int, default=None)
+    f.add_argument("--legenda", default=None, help="idioma da legenda (padrão pt; 'auto' = idioma da live)")
+    f.add_argument("--sem-marca", action="store_true", help="monta sem a marca d'água da conta")
     f.set_defaults(f=fazer)
+    mk = sub.add_parser("marca")
+    mk.add_argument("perfil", nargs="?", help="@ da conta (ex.: @seu_perfil); sem argumento mostra a marca atual")
+    mk.set_defaults(f=marca)
+    tr = sub.add_parser("traduzir")
+    tr.add_argument("live")
+    tr.add_argument("--modelo", default="small", help="modelo que separa as falas dos cortes")
+    tr.add_argument("--legenda", default=None, help="idioma da legenda (padrão pt)")
+    tr.add_argument("--refazer", action="store_true", help="separa as falas de novo")
+    tr.add_argument("--esperar", type=int, default=None)
+    tr.set_defaults(f=traduzir)
     t = sub.add_parser("automatico")
     t.add_argument("link")
     t.add_argument("--quantos", type=int, default=3)
     t.add_argument("--esperar", type=int, default=None)
+    t.add_argument("--sem-marca", action="store_true", help="monta sem a marca d'água da conta")
     t.set_defaults(f=automatico)
     w = sub.add_parser("_trabalho")
     w.add_argument("nome")

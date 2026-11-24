@@ -28,6 +28,42 @@ def modelo_confere():
         return False
 
 
+CONFIG = CASA / "config.json"  # configuração da pessoa (fora da pasta da skill): marca da conta etc.
+
+
+def marca_perfil():
+    """@ da conta que posta os cortes, gravado em todo vídeo como marca d'água. Vem de CLIPPER_MARCA ou do config.json
+    (comando 'marca'). Vazio = sem marca (o 'fazer' só aceita isso com --sem-marca)."""
+    if os.environ.get("CLIPPER_SEM_MARCA") == "1":
+        return ""
+    bruto = os.environ.get("CLIPPER_MARCA") or ler_json(CONFIG, {}).get("marca") or ""
+    nome = re.sub(r"[^A-Za-z0-9_.]", "", str(bruto))[:30]
+    return "@" + nome if nome else ""
+
+
+def definir_marca(valor):
+    """Grava a marca no config.json. Devolve a marca já limpa (ex.: '@seu_perfil')."""
+    nome = re.sub(r"[^A-Za-z0-9_.]", "", str(valor))[:30]
+    if not nome:
+        sys.exit("Marca inválida. Use só letras, números, ponto e _ (ex.: @seu_perfil).")
+    dados = ler_json(CONFIG, {})
+    dados["marca"] = "@" + nome
+    gravar_json(CONFIG, dados)
+    return "@" + nome
+
+
+def legenda_idioma():
+    """Idioma das legendas na tela. Padrão: português do Brasil ('pt'). 'auto' = mantém o idioma da live (sem traduzir).
+    Muda com CLIPPER_LEGENDA_IDIOMA ou com --legenda nos comandos traduzir/fazer."""
+    return (os.environ.get("CLIPPER_LEGENDA_IDIOMA") or "pt").strip().lower()[:4]
+
+
+def precisa_traduzir(idioma_da_live):
+    """A fala da live está em outro idioma que o da legenda? (live sem idioma detectado ou modo 'auto': não traduz)"""
+    alvo = legenda_idioma()
+    return bool(idioma_da_live) and alvo not in ("auto", "") and str(idioma_da_live)[:2] != alvo[:2]
+
+
 _CTRL = re.compile(r"[\x00-\x1f\x7f<>]")
 _URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 
