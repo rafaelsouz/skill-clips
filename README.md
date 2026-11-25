@@ -25,6 +25,9 @@ Você manda o link de uma live (YouTube, Twitch ou Kick), ou pede as maiores liv
 - **Texto de terceiros higienizado:** a IA lê fala sem `<` `>`, links e quebras de linha, com aviso de que é dado.
 - **Chat em paralelo:** o replay do chat baixa junto com a escuta; se for enorme, usa o pedaço já baixado.
 - **Cortes de 20 a 90 s**, sempre com a preparação do lance dentro.
+- **Telegram (aprovação):** `clip telegram configurar | testar | parear | enviar NOME | ouvir | status`. O bot manda o
+  corte pro seu privado com botões ✅ Aprovar, 🗑 Rejeitar e ✏️ Pedir alteração e **só atende você** (id pareado e chat
+  privado). Só polling, sem ngrok. Testes de segurança sem rede: `python scripts/teste_telegram.py`.
 - **Marca da conta em todo vídeo** (regra): `clip marca @seu_perfil` define o @ que vira marca d'água, centralizada na
   parte de baixo e translúcida (anticópia); o `fazer` não monta sem ela (`--sem-marca` desliga). A marca fica em `~/clipper-gta6/config.json`, fora desta pasta.
 - **Volume normalizado a -14 LUFS** (pico ≤ -1 dBTP) e **bitrate limitado** (corte cabe em ~46 MB, abaixo do limite de

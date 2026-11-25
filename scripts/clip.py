@@ -8,6 +8,7 @@ Comandos (depois do instalar, use o atalho ~/clipper-gta6/clip no lugar de "clip
   clip refinar LIVE [--modelo small]  escuta de novo só os trechos quentes com modelo melhor (refaz candidatos.txt)
   clip escolher LIVE [--manter 3]     junta os momentos que a IA escreveu e fica com os melhores
   clip traduzir LIVE                  separa as falas de cada corte pra IA traduzir pra PT-BR (live em outro idioma)
+  clip telegram AÇÃO                  configurar | testar | parear | enviar NOME | ouvir | status (só o dono é atendido)
   clip marca [@perfil]                mostra ou define o @ da conta que vira marca d'água em todo vídeo
   clip fazer LIVE                     monta os cortes (câmera em cima, jogo embaixo, título, legenda em PT-BR)
   clip automatico LINK [--quantos 3]  tudo sozinho, sem a IA ler (títulos mais simples)
@@ -256,6 +257,12 @@ def traduzir(a):
     print(f"  Depois rode: fazer {pasta.name}")
 
 
+def telegram(a):
+    """Manda os cortes pro SEU Telegram e escuta aprovar / rejeitar / pedir alteração (só o dono é atendido)."""
+    import bot_telegram
+    bot_telegram.executar(a)
+
+
 def marca(a):
     """Mostra ou define o @ da conta que vira marca d'água em todo vídeo (regra da skill)."""
     from comum import CONFIG, definir_marca, marca_perfil
@@ -411,6 +418,14 @@ def main():
     f.add_argument("--legenda", default=None, help="idioma da legenda (padrão pt; 'auto' = idioma da live)")
     f.add_argument("--sem-marca", action="store_true", help="monta sem a marca d'água da conta")
     f.set_defaults(f=fazer)
+    tg = sub.add_parser("telegram")
+    tg.add_argument("acao", choices=["configurar", "testar", "parear", "enviar", "ouvir", "status"])
+    tg.add_argument("live", nargs="?", help="enviar: nome da live")
+    tg.add_argument("--cortes", default=None, help="enviar: números dos cortes, ex.: 1,3 (padrão: todos)")
+    tg.add_argument("--reenviar", action="store_true", help="enviar: manda de novo o que já foi enviado")
+    tg.add_argument("--refazer", action="store_true", help="parear: troca o dono já pareado")
+    tg.add_argument("--uma-vez", action="store_true", help="ouvir: processa o que chegou e sai")
+    tg.set_defaults(f=telegram)
     mk = sub.add_parser("marca")
     mk.add_argument("perfil", nargs="?", help="@ da conta (ex.: @seu_perfil); sem argumento mostra a marca atual")
     mk.set_defaults(f=marca)
