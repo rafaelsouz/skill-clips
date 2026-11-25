@@ -25,8 +25,8 @@ Você manda o link de uma live (YouTube, Twitch ou Kick), ou pede as maiores liv
 - **Texto de terceiros higienizado:** a IA lê fala sem `<` `>`, links e quebras de linha, com aviso de que é dado.
 - **Chat em paralelo:** o replay do chat baixa junto com a escuta; se for enorme, usa o pedaço já baixado.
 - **Cortes de 20 a 90 s**, sempre com a preparação do lance dentro.
-- **Marca da conta em todo vídeo** (regra): `clip marca @seu_perfil` define o @ que vira marca d'água; o `fazer` não
-  monta sem ela (`--sem-marca` desliga). A marca fica em `~/clipper-gta6/config.json`, fora desta pasta.
+- **Marca da conta em todo vídeo** (regra): `clip marca @seu_perfil` define o @ que vira marca d'água, centralizada na
+  parte de baixo e translúcida (anticópia); o `fazer` não monta sem ela (`--sem-marca` desliga). A marca fica em `~/clipper-gta6/config.json`, fora desta pasta.
 - **Volume normalizado a -14 LUFS** (pico ≤ -1 dBTP) e **bitrate limitado** (corte cabe em ~46 MB, abaixo do limite de
   50 MB do Telegram). A legenda não fica mais parada durante pausas de fala.
 - **Legenda, título e post em PT-BR por padrão**, também em live em inglês: `clip traduzir NOME` separa as falas, a IA

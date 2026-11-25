@@ -235,7 +235,7 @@ def _grupos(palavras, tamanho=3, pausa=0.8):
 
 def escrever_ass(caminho, titulo, palavras, dur, com_camera, marca=""):
     y_titulo = CAM_H if com_camera else 520
-    y_marca = CAM_H + 60 if com_camera else 1290  # canto de cima do jogo, longe da área que o Instagram cobre
+    y_marca = MARCA_Y  # no meio da largura, na parte de baixo: cortar a marca fora estragaria o vídeo (anticópia)
     y_leg = CAM_H + int(JOGO_H * 0.62) if com_camera else 1480
     linhas = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {L}", f"PlayResY: {A}", "WrapStyle: 0", "",
@@ -245,10 +245,10 @@ def escrever_ass(caminho, titulo, palavras, dur, com_camera, marca=""):
         "MarginL, MarginR, MarginV, Encoding",
         "Style: Gancho,Montserrat ExtraBold,56,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,18,0,5,60,60,0,1",
         "Style: Leg,Montserrat ExtraBold,80,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,7,3,5,40,40,0,1",
-        "Style: Marca,Montserrat ExtraBold,40,&H4DFFFFFF,&H4DFFFFFF,&H33000000,&H00000000,0,0,0,0,100,100,0,0,1,4,0,9,0,0,0,1",
+        "Style: Marca,Montserrat ExtraBold,54,&H80FFFFFF,&H80FFFFFF,&H99000000,&H00000000,0,0,0,0,100,100,0,0,1,3,0,5,0,0,0,1",
         "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
         f"Dialogue: 1,{_ass_tempo(0)},{_ass_tempo(dur)},Gancho,,0,0,0,,{{\\pos(540,{y_titulo})}}{_limpo(titulo).upper()}",
-        *([f"Dialogue: 1,{_ass_tempo(0)},{_ass_tempo(dur)},Marca,,0,0,0,,{{\\an9\\pos(1040,{y_marca})}}{_limpo(marca)}"]
+        *([f"Dialogue: 1,{_ass_tempo(0)},{_ass_tempo(dur)},Marca,,0,0,0,,{{\\an5\\pos(540,{y_marca})}}{_limpo(marca)}"]
           if marca else []),
     ]
     grupos = _grupos(palavras)
@@ -267,7 +267,8 @@ def escrever_ass(caminho, titulo, palavras, dur, com_camera, marca=""):
 FORMATO = "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b"
 
 
-RENDER_V = "r4"  # muda quando o jeito de montar muda (legenda, volume, bitrate): os cortes antigos são refeitos
+MARCA_Y = 1650  # altura da marca d'água (0 = topo, 1920 = base): entre a legenda e a legenda do próprio jogo
+RENDER_V = "r5"  # muda quando o jeito de montar muda (legenda, volume, bitrate): os cortes antigos são refeitos
 # padrão de Reels/TikTok: -14 LUFS. Pico em -2,5 dBTP porque o AAC acrescenta ~1 dB depois (resultado final ≤ -1 dBTP)
 VOLUME_ALVO = "loudnorm=I=-14:TP=-2.5:LRA=15"
 TAMANHO_MAX_MB = 46  # abaixo dos 50 MB do Telegram

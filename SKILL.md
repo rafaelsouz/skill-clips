@@ -25,7 +25,8 @@ Fale com a pessoa em português simples, uma frase por vez, sem jargão. Ela nã
 5. Se você não conseguir escrever o arquivo de momentos depois de 2 tentativas, use o modo automático:
    `escolher NOME --auto --manter N` e depois `fazer NOME`.
 
-6. **Todo vídeo leva a marca da conta** (o @ do Instagram, pequeno e semitransparente no canto de cima do jogo).
+6. **Todo vídeo leva a marca da conta** (o @ do Instagram, **no meio da largura, na parte de baixo do vídeo, translúcida**:
+   fica no meio pra não dar pra cortar fora sem estragar a imagem, e serve de proteção contra cópia).
    É regra: o `fazer` não monta sem ela. `marca` mostra a marca atual, `marca @perfil` define (fica em
    `~/clipper-gta6/config.json`, fora da skill). Se disser **FALTA A MARCA DA CONTA**, pergunte o @ à pessoa e rode
    `marca @perfil`. Só use `--sem-marca` se a pessoa pedir. Não esconda nem cubra a marca d'água do streamer: o crédito
