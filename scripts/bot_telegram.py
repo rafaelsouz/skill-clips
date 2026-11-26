@@ -36,7 +36,7 @@ TOKEN_RE = re.compile(r"\A\d{6,12}:[A-Za-z0-9_-]{30,}\Z")
 _SEGREDO = re.compile(r"(?:bot)?\d{6,12}:[A-Za-z0-9_-]{25,}")
 # único formato de botão aceito. \Z (e não $): o $ deixaria passar uma quebra de linha no fim
 CB_RE = re.compile(r"\A(aprovar|rejeitar|alterar):(\d{1,6})\Z")
-ESTADOS_FINAIS = ("aprovado", "rejeitado")
+ESTADOS_FINAIS = ("aprovado", "rejeitado", "postado")  # decidido: um clique velho não desfaz (nem repete um post)
 
 
 def redigir(texto):

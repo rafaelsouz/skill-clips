@@ -126,6 +126,12 @@ class TesteEscutador(Base):
         self.assertEqual(self.fila.clipe(self.cid)["estado"], "aprovado")  # idempotente
         self.assertTrue(any(c[0] == "botoes" for c in self.bot.chamadas))
 
+    def test_clipe_postado_nao_volta_a_ser_decidido(self):
+        self.fila.mudar(self.cid, estado="postado")
+        for acao in ("aprovar", "rejeitar", "alterar"):
+            self.esc.processar(clique(DONO, DONO, f"{acao}:{self.cid}"))
+        self.assertEqual(self.fila.clipe(self.cid)["estado"], "postado")
+
     def test_dono_rejeita(self):
         self.esc.processar(clique(DONO, DONO, f"rejeitar:{self.cid}"))
         self.assertEqual(self.fila.clipe(self.cid)["estado"], "rejeitado")

@@ -9,6 +9,7 @@ Comandos (depois do instalar, use o atalho ~/clipper-gta6/clip no lugar de "clip
   clip escolher LIVE [--manter 3]     junta os momentos que a IA escreveu e fica com os melhores
   clip traduzir LIVE                  separa as falas de cada corte pra IA traduzir pra PT-BR (live em outro idioma)
   clip telegram AÇÃO                  configurar | testar | parear | enviar NOME | ouvir | status (só o dono é atendido)
+  clip instagram AÇÃO                 configurar | testar | renovar | publicar N --url URL [--postar] | status
   clip marca [@perfil]                mostra ou define o @ da conta que vira marca d'água em todo vídeo
   clip fazer LIVE                     monta os cortes (câmera em cima, jogo embaixo, título, legenda em PT-BR)
   clip automatico LINK [--quantos 3]  tudo sozinho, sem a IA ler (títulos mais simples)
@@ -263,6 +264,12 @@ def telegram(a):
     bot_telegram.executar(a)
 
 
+def instagram(a):
+    """Confere a conta e publica Reels APROVADOS no Telegram pela API oficial (só com --postar; sem ele é simulação)."""
+    import instagram_api
+    instagram_api.executar(a)
+
+
 def marca(a):
     """Mostra ou define o @ da conta que vira marca d'água em todo vídeo (regra da skill)."""
     from comum import CONFIG, definir_marca, marca_perfil
@@ -426,6 +433,13 @@ def main():
     tg.add_argument("--refazer", action="store_true", help="parear: troca o dono já pareado")
     tg.add_argument("--uma-vez", action="store_true", help="ouvir: processa o que chegou e sai")
     tg.set_defaults(f=telegram)
+    ig = sub.add_parser("instagram")
+    ig.add_argument("acao", choices=["configurar", "testar", "renovar", "publicar", "status"])
+    ig.add_argument("clipe", nargs="?", help="publicar: número do clipe (o #N que o Telegram mostra)")
+    ig.add_argument("--url", default=None, help="publicar: URL https pública do vídeo (a Meta baixa o arquivo dela)")
+    ig.add_argument("--postar", action="store_true", help="publicar: publica de verdade (sem isso é só simulação)")
+    ig.add_argument("--sem-credito", action="store_true", help="publicar: não coloca a linha de crédito na legenda")
+    ig.set_defaults(f=instagram)
     mk = sub.add_parser("marca")
     mk.add_argument("perfil", nargs="?", help="@ da conta (ex.: @seu_perfil); sem argumento mostra a marca atual")
     mk.set_defaults(f=marca)

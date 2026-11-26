@@ -28,6 +28,10 @@ Você manda o link de uma live (YouTube, Twitch ou Kick), ou pede as maiores liv
 - **Telegram (aprovação):** `clip telegram configurar | testar | parear | enviar NOME | ouvir | status`. O bot manda o
   corte pro seu privado com botões ✅ Aprovar, 🗑 Rejeitar e ✏️ Pedir alteração e **só atende você** (id pareado e chat
   privado). Só polling, sem ngrok. Testes de segurança sem rede: `python scripts/teste_telegram.py`.
+- **Instagram (API oficial):** `clip instagram configurar | testar | renovar | publicar N [--url URL] [--postar] | status`.
+  Aceita o token do login unificado (`EAA`, o arquivo sobe direto, sem hospedar) e o do login do Instagram (`IG`, com
+  `--url`). Só publica o que você aprovou no Telegram, uma vez, e só com `--postar` (sem ele é simulação). Testes sem
+  rede: `python scripts/teste_instagram.py`.
 - **Marca da conta em todo vídeo** (regra): `clip marca @seu_perfil` define o @ que vira marca d'água, centralizada na
   parte de baixo e translúcida (anticópia); o `fazer` não monta sem ela (`--sem-marca` desliga). A marca fica em `~/clipper-gta6/config.json`, fora desta pasta.
 - **Volume normalizado a -14 LUFS** (pico ≤ -1 dBTP) e **bitrate limitado** (corte cabe em ~46 MB, abaixo do limite de
