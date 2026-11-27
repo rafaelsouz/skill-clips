@@ -439,6 +439,7 @@ def main():
     ig.add_argument("--url", default=None, help="publicar: URL https pública do vídeo (a Meta baixa o arquivo dela)")
     ig.add_argument("--postar", action="store_true", help="publicar: publica de verdade (sem isso é só simulação)")
     ig.add_argument("--sem-credito", action="store_true", help="publicar: não coloca a linha de crédito na legenda")
+    ig.add_argument("--refazer", action="store_true", help="publicar: descarta o contêiner antigo e sobe o vídeo de novo")
     ig.set_defaults(f=instagram)
     mk = sub.add_parser("marca")
     mk.add_argument("perfil", nargs="?", help="@ da conta (ex.: @seu_perfil); sem argumento mostra a marca atual")

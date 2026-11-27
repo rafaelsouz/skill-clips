@@ -22,8 +22,8 @@ import time
 import wave
 from pathlib import Path
 
-from comum import (BLOCO_MIN, TRABALHO, e_lixo, gravar_json, hms, ler_json, limpar_texto, motivo_trancada, rodar,
-                   slug, url_segura, ytdlp)
+from comum import (BLOCO_MIN, TRABALHO, carregar_whisper, e_lixo, gravar_json, hms, ler_json, limpar_texto,
+                   motivo_trancada, rodar, slug, url_segura, ytdlp)
 
 PEDACO = 600  # escuta 10 minutos por vez e guarda: se parar no meio, continua dali
 LINKS = TRABALHO / "links.json"
@@ -178,7 +178,7 @@ def transcrever(pasta, modelo=None, idioma=None):
         if arq.exists():
             continue
         if m is None:
-            m = WhisperModel(modelo, device="cpu", compute_type="int8")
+            m = carregar_whisper(modelo)
         with wave.open(str(w)) as f:
             f.setpos(min(n, k * PEDACO * sr))
             a = np.frombuffer(f.readframes(PEDACO * sr), dtype=np.int16).astype(np.float32) / 32768
@@ -401,7 +401,7 @@ def refinar(pasta, modelo="small"):
         if not arq.exists():
             ini, fim = max(0, t["inicio"] - 5), min(n / sr, t["fim"] + 5)
             if m is None:
-                m = WhisperModel(modelo, device="cpu", compute_type="int8")
+                m = carregar_whisper(modelo)
             with wave.open(str(w)) as f:
                 f.setpos(int(ini * sr))
                 a = np.frombuffer(f.readframes(int((fim - ini) * sr)), dtype=np.int16).astype(np.float32) / 32768

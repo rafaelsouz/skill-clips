@@ -260,6 +260,23 @@ class TesteSegredos(unittest.TestCase):
                 bot.get_me()
         self.assertNotIn(TOKEN_FALSO, str(cm.exception))
 
+    def test_falha_de_rede_fecha_a_conexao_para_a_proxima_ser_nova(self):
+        bot = bt.Bot(TOKEN_FALSO)
+        with mock.patch.object(bot._http, "post", side_effect=requests.ReadTimeout("lento")), \
+                mock.patch.object(bot._http, "close") as fechar:
+            with self.assertRaises(bt.TelegramErro):
+                bot.updates(0, 1)
+        fechar.assert_called_once()
+
+    def test_espera_longa_e_curta_e_o_timeout_da_requisicao_cobre_ela(self):
+        self.assertLessEqual(bt.ESPERA_LONGA, 30)
+        bot = bt.Bot(TOKEN_FALSO)
+        resp = mock.Mock()
+        resp.json.return_value = {"ok": True, "result": []}
+        with mock.patch.object(bot._http, "post", return_value=resp) as post:
+            bot.updates(0, bt.ESPERA_LONGA)
+        self.assertGreater(post.call_args.kwargs["timeout"], bt.ESPERA_LONGA)
+
     def test_repr_do_bot_nao_mostra_o_token(self):
         self.assertNotIn(TOKEN_FALSO, repr(bt.Bot(TOKEN_FALSO)))
 

@@ -52,6 +52,16 @@ def definir_marca(valor):
     return "@" + nome
 
 
+def carregar_whisper(modelo):
+    """Carrega o Whisper usando o modelo que já está no computador. Sem isso o faster-whisper consulta a internet a cada
+    carga e, com a rede ruim, a escuta ficava parada por dezenas de minutos. Só baixa se o modelo ainda não existe."""
+    from faster_whisper import WhisperModel
+    try:
+        return WhisperModel(modelo, device="cpu", compute_type="int8", local_files_only=True)
+    except Exception:  # noqa: BLE001  (modelo ainda não baixado: primeira vez)
+        return WhisperModel(modelo, device="cpu", compute_type="int8")
+
+
 def legenda_idioma():
     """Idioma das legendas na tela. Padrão: português do Brasil ('pt'). 'auto' = mantém o idioma da live (sem traduzir).
     Muda com CLIPPER_LEGENDA_IDIOMA ou com --legenda nos comandos traduzir/fazer."""

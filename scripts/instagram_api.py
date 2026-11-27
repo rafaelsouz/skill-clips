@@ -19,6 +19,8 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -224,12 +226,16 @@ class Instagram:
                 continue
             if isinstance(j, dict) and j.get("success"):
                 return
-            if isinstance(j, dict) and isinstance(j.get("debug_info"), dict) and j["debug_info"].get("retriable") and tentativa < tentativas - 1:
+            if isinstance(j, dict) and isinstance(j.get("error"), dict):
+                self._tratar("POST", "upload", r, j)
+            info = (j.get("debug_info") if isinstance(j, dict) else None) or {}
+            if info.get("retriable") and tentativa < tentativas - 1:
                 offset = self._bytes_enviados(conteiner)
                 self._dormir(5 * (tentativa + 1))
                 continue
-            self._tratar("POST", "upload", r, j if isinstance(j, dict) else {})
-            raise InstagramErro("upload: a Meta recusou o vídeo (" + redigir_ig(str(j)[:200], self._token) + ")")
+            tipo = str(info.get("type") or f"HTTP {r.status_code}")
+            raise InstagramErro(f"upload recusado pela Meta ({tipo}: {redigir_ig(info.get('message', 'sem detalhe'), self._token)})",
+                                codigo=tipo)
 
     def status(self, conteiner):
         return self._req("GET", conteiner, params={"fields": "status_code,status"})
@@ -316,13 +322,34 @@ def avisos_do_video(caminho, dims=None):
     return erros, avisos
 
 
+# cópias do vídeo para o Instagram: a Meta recusou os 1080x1920 de 45 s ou mais (ProcessingFailedError) e aceitou os mesmos
+# clipes em 720p e 540p. O Instagram reduz o Reels para ~720p de qualquer jeito. O arquivo original não é tocado.
+NIVEIS = [(720, 1280, 21, "3000k", "6000k"), (540, 960, 24, "1500k", "3000k")]
+
+
+def preparar_copia(mp4, destino, nivel=0):
+    """Gera a cópia do corte para subir no Instagram (nivel 0 = 720x1280, 1 = 540x960). Devolve o caminho."""
+    larg, alt, crf, maxrate, buf = NIVEIS[nivel]
+    destino = Path(destino)
+    destino.mkdir(parents=True, exist_ok=True)
+    saida = destino / f"{Path(mp4).stem}_ig{larg}.mp4"
+    r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp4), "-vf", f"scale={larg}:{alt}:flags=lanczos",
+                        "-c:v", "libx264", "-preset", "medium", "-crf", str(crf), "-maxrate", maxrate, "-bufsize", buf,
+                        "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+                        "-movflags", "+faststart", str(saida)], capture_output=True)
+    if r.returncode != 0 or not saida.exists():
+        raise InstagramErro("não consegui preparar a cópia do vídeo para o Instagram (o ffmpeg falhou)")
+    return saida
+
+
 def permissoes_em_excesso(concedidas):
     """Permissões do token além das de publicar (anúncios, mensagens...): quanto menos, menor o estrago se vazar."""
     return sorted(set(concedidas or []) - PERMISSOES_NECESSARIAS - {"public_profile"})
 
 
 # ---------------------------------------------------------------- publicar (só o que foi aprovado, uma vez)
-def publicar_clipe(ig, user_id, clip_id, url=None, postar=False, com_credito=True, fila=None, dims=None):
+def publicar_clipe(ig, user_id, clip_id, url=None, postar=False, com_credito=True, fila=None, dims=None, preparar=None,
+                   refazer=False):
     fila = fila or bt.Fila()
     clip = fila.clipe(clip_id)
     if not clip:
@@ -350,38 +377,69 @@ def publicar_clipe(ig, user_id, clip_id, url=None, postar=False, com_credito=Tru
     canal = info.get("uploader") or info.get("channel")
     legenda = montar_legenda(partes[1], f"Crédito: {canal}" if (com_credito and canal) else None)
 
-    ig_estado = dict(clip.get("instagram") or {})
+    ig_estado = {} if refazer else dict(clip.get("instagram") or {})  # --refazer: descarta o contêiner antigo e sobe de novo
     limite = ig.limite(user_id)
     if limite["usado"] is not None and limite["total"] and limite["usado"] >= limite["total"]:
         raise InstagramErro(f"a cota de publicação das últimas 24 h acabou ({limite['usado']}/{limite['total']})")
 
-    def novo_conteiner():
+    pasta_copias = bt.PASTA / "instagram" / f"clipe_{clip_id}"
+    preparar = preparar or preparar_copia
+    feitas = {}
+
+    def novo_conteiner(nivel=0):
+        qualidade = None
         if modo == "url":
             c = ig.criar_conteiner(user_id, url, legenda)
         else:
+            if nivel not in feitas:  # cópia 720p (ou 540p) só para o Instagram; o original fica como está
+                feitas[nivel] = preparar(mp4, pasta_copias, nivel)
+            copia = feitas[nivel]
+            qualidade = f"{NIVEIS[nivel][0]}p"
             c, uri = ig.criar_conteiner_resumivel(user_id, legenda)
-            ig_estado.update(estado="conteiner_criado", conteiner=c, modo=modo)
+            ig_estado.update(estado="conteiner_criado", conteiner=c, modo=modo, qualidade=qualidade)
             fila.mudar(clip_id, instagram=ig_estado)
-            ig.enviar_arquivo(uri, mp4)
-        ig_estado.update(estado="conteiner_criado", conteiner=c, modo=modo, criado_em=datetime.now().isoformat(timespec="seconds"))
+            try:
+                ig.enviar_arquivo(uri, copia)
+            except InstagramErro:
+                ig_estado.pop("conteiner", None)  # contêiner sem vídeo não serve: a próxima tentativa cria outro
+                ig_estado["estado"] = "upload_falhou"
+                fila.mudar(clip_id, instagram=ig_estado)
+                raise
+        ig_estado.update(estado="conteiner_criado", conteiner=c, modo=modo, qualidade=qualidade,
+                         criado_em=datetime.now().isoformat(timespec="seconds"))
         fila.mudar(clip_id, instagram=ig_estado)
-        fila.registrar(clip=clip_id, evento="instagram_conteiner", modo=modo)
+        fila.registrar(clip=clip_id, evento="instagram_conteiner", modo=modo, qualidade=qualidade)
         return c
+
+    def criar_conteiner():
+        """No upload do arquivo: 720p (2 tentativas, a recusa às vezes é passageira) e, se a Meta continuar recusando o
+        processamento, 540p."""
+        ultimo = None
+        for nivel in range(len(NIVEIS)):
+            for _ in range(2):
+                try:
+                    return novo_conteiner(nivel)
+                except InstagramErro as e:
+                    if modo == "url" or e.codigo != "ProcessingFailedError":
+                        raise
+                    ultimo = e
+        raise ultimo
 
     cid = ig_estado.get("conteiner")
     reutilizado = bool(cid)
-    cid = cid or novo_conteiner()
+    cid = cid or criar_conteiner()
     try:
         situacao = ig.aguardar(cid)
     except InstagramErro as e:
         if not (reutilizado and ("EXPIRED" in str(e) or "ERROR" in str(e))):  # contêiner antigo venceu (24 h): cria outro
             raise
-        cid = novo_conteiner()
+        cid = criar_conteiner()
         situacao = ig.aguardar(cid)
     if not postar:
         ig_estado["estado"] = "pronto_para_postar"
         fila.mudar(clip_id, instagram=ig_estado)
-        return {"simulado": True, "conteiner": cid, "legenda": legenda, "avisos": avisos, "limite": limite, "modo": modo}
+        return {"simulado": True, "conteiner": cid, "legenda": legenda, "avisos": avisos, "limite": limite, "modo": modo,
+                "qualidade": ig_estado.get("qualidade")}
 
     media_id = None
     if situacao != "PUBLISHED":  # PUBLISHED = já foi publicado antes (nunca posta duas vezes)
@@ -395,7 +453,10 @@ def publicar_clipe(ig, user_id, clip_id, url=None, postar=False, com_credito=Tru
     ig_estado.update(estado="publicado", media_id=media_id, link=link, publicado_em=datetime.now().isoformat(timespec="seconds"))
     fila.mudar(clip_id, estado="postado", instagram=ig_estado)
     fila.registrar(clip=clip_id, evento="postado_no_instagram", link=link)
-    return {"simulado": False, "media_id": media_id, "link": link, "legenda": legenda, "avisos": avisos, "modo": modo}
+    if pasta_copias.parent == bt.PASTA / "instagram":  # a cópia temporária não é mais necessária
+        shutil.rmtree(pasta_copias, ignore_errors=True)
+    return {"simulado": False, "media_id": media_id, "link": link, "legenda": legenda, "avisos": avisos, "modo": modo,
+            "qualidade": ig_estado.get("qualidade")}
 
 
 # ---------------------------------------------------------------- comandos
@@ -487,14 +548,16 @@ def executar(a):
         ig = Instagram(carregar_token())
         user_id = ler_conta().get("user_id") or escolher_conta(ig.contas(), marca_perfil().lstrip("@"))["user_id"]
         try:
-            r = publicar_clipe(ig, user_id, int(a.clipe), a.url, postar=a.postar, com_credito=not a.sem_credito)
+            r = publicar_clipe(ig, user_id, int(a.clipe), a.url, postar=a.postar, com_credito=not a.sem_credito,
+                               refazer=a.refazer)
         except InstagramErro as e:
             sys.exit(f"\nNÃO PUBLIQUEI: {e}")
         for aviso in r.get("avisos", []):
             print(f"  aviso: {aviso}")
         print("\nLegenda que vai no post:\n" + "-" * 40 + f"\n{r['legenda']}\n" + "-" * 40)
         if r["simulado"]:
-            print(f"\nSIMULAÇÃO OK: o vídeo foi aceito pela Meta (contêiner {r['conteiner']}, modo {r['modo']}), nada foi publicado.\n"
+            print(f"\nSIMULAÇÃO OK: o vídeo foi aceito pela Meta (contêiner {r['conteiner']}, modo {r['modo']}"
+                  + (f", cópia {r['qualidade']}" if r.get("qualidade") else "") + "), nada foi publicado.\n"
                   f"Para publicar de verdade: instagram publicar {a.clipe}" + (f" --url {a.url}" if a.url else "") + " --postar")
         else:
             print("\nPUBLICADO." + (f" Link: {r['link']}" if r.get("link") else ""))

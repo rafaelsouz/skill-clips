@@ -10,8 +10,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from comum import (CORTES, YUNET, gravar_json, hms, ler_json, legenda_idioma, limpar_texto,  # noqa: F401
-                   marca_perfil, precisa_traduzir, rodar, segundos, ytdlp)
+from comum import (CORTES, YUNET, carregar_whisper, gravar_json, hms, ler_json, legenda_idioma,  # noqa: F401
+                   limpar_texto, marca_perfil, precisa_traduzir, rodar, segundos, ytdlp)
 
 FONTES = Path(__file__).resolve().parent.parent / "fontes"
 L, A = 1080, 1920          # vídeo vertical
@@ -213,7 +213,7 @@ def audio_16k(arquivo):
 
 def palavras_do_trecho(video, idioma, modelo="small"):
     from faster_whisper import WhisperModel
-    m = WhisperModel(modelo, device="cpu", compute_type="int8")
+    m = carregar_whisper(modelo)
     segs, _ = m.transcribe(audio_16k(video), language=idioma, word_timestamps=True, vad_filter=True,
                            condition_on_previous_text=False)
     return [(w.start, w.end, w.word.strip()) for s in segs for w in (s.words or []) if w.word.strip()]

@@ -32,6 +32,7 @@ ENV = CASA / ".env"
 PASTA = CASA / "aprovacao"
 OFFSET = PASTA / "offset.json"
 LIMITE_BYTES = 49_000_000  # o bot oficial aceita até 50 MB por arquivo
+ESPERA_LONGA = 25  # segundos de espera por novidade em cada pergunta (curta: se a conexão pendurar, volta logo)
 TOKEN_RE = re.compile(r"\A\d{6,12}:[A-Za-z0-9_-]{30,}\Z")
 _SEGREDO = re.compile(r"(?:bot)?\d{6,12}:[A-Za-z0-9_-]{25,}")
 # único formato de botão aceito. \Z (e não $): o $ deixaria passar uma quebra de linha no fim
@@ -115,6 +116,7 @@ class Bot:
             r = self._http.post(f"{self._base}/{metodo}", data=dados, files=arquivos, timeout=timeout)
             j = r.json()
         except (requests.RequestException, ValueError) as e:
+            self._http.close()  # conexão nova na próxima: uma conexão pendurada não trava a escuta de novo
             # 'from None': a exceção original traz a URL (com o token) na mensagem
             raise TelegramErro(f"{metodo}: falha de rede ({type(e).__name__})") from None
         if not j.get("ok"):
@@ -141,7 +143,7 @@ class Bot:
     def updates(self, offset, timeout=50):
         dados = {"offset": str(offset), "timeout": str(timeout),
                  "allowed_updates": json.dumps(["message", "callback_query"])}
-        return self.chamar("getUpdates", dados, timeout=timeout + 20)
+        return self.chamar("getUpdates", dados, timeout=timeout + 15)
 
     def responder_clique(self, id_clique, texto=""):
         return self.chamar("answerCallbackQuery", {"callback_query_id": id_clique, "text": texto[:190]})
@@ -434,7 +436,7 @@ def ouvir(bot, dono, uma_vez=False, fila=None, arq_offset=None):
     print("Ouvindo o Telegram (só o dono é atendido). Ctrl+C para parar." if not uma_vez else "Lendo o que chegou…", flush=True)
     while True:
         try:
-            ups = bot.updates(offset, 0 if uma_vez else 50)
+            ups = bot.updates(offset, 0 if uma_vez else ESPERA_LONGA)
             espera = 5
         except TelegramErro as e:
             if e.codigo in (401, 404):

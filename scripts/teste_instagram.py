@@ -1,5 +1,6 @@
 """Testes do Instagram (sem rede e sem token): uma "Meta" de mentira responde às chamadas.
 Rode:  python scripts/teste_instagram.py"""
+import shutil
 import sys
 import tempfile
 import unittest
@@ -249,6 +250,31 @@ class TesteUnificado(unittest.TestCase):
         with self.assertRaises(ia.InstagramErro):
             ig.enviar_arquivo("https://rupload.facebook.com/ig-api-upload/v27.0/C9", self.mp4)
 
+    def test_erro_do_upload_diz_o_tipo_e_o_motivo_sem_o_token(self):
+        ig, _ = cliente(lambda m, u, p, d: (400, {"debug_info": {"retriable": False, "type": "ProcessingFailedError",
+                                                                 "message": f"Request processing failed {TOKEN_FB}"}}),
+                        token=TOKEN_FB)
+        with self.assertRaises(ia.InstagramErro) as cm:
+            ig.enviar_arquivo("https://rupload.facebook.com/ig-api-upload/v27.0/C9", self.mp4)
+        self.assertEqual(cm.exception.codigo, "ProcessingFailedError")
+        self.assertIn("Request processing failed", str(cm.exception))
+        self.assertNotIn(TOKEN_FB, str(cm.exception))
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg não encontrado")
+    def test_preparar_copia_gera_720x1280_de_verdade(self):
+        import json
+        import subprocess
+        origem = Path(self._tmp.name) / "o.mp4"
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=1080x1920:rate=30:duration=1",
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-shortest", str(origem)], check=True)
+        for nivel, esperado in ((0, (720, 1280)), (1, (540, 960))):
+            copia = ia.preparar_copia(origem, Path(self._tmp.name) / "cp", nivel)
+            j = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                                           "-of", "json", str(copia)], capture_output=True, text=True).stdout)
+            self.assertEqual((j["streams"][0]["width"], j["streams"][0]["height"]), esperado)
+        self.assertTrue(origem.exists() and origem.stat().st_size > 0)  # o original não é tocado
+
     def test_renovar_nao_se_aplica_ao_token_de_sistema(self):
         with self.assertRaises(ia.InstagramErro):
             cliente(token=TOKEN_FB)[0].renovar()
@@ -333,10 +359,93 @@ class TestePublicar(unittest.TestCase):
         self.cid = self.fila.novo(live="minhalive", corte=1, arquivo=str(self.mp4))
         self.fila.mudar(self.cid, estado="aprovado")
         self.dims = (1080, 1920, 50.0)
+        self.copias = []
+
+        def preparar(mp4, destino, nivel=0):  # no teste não roda o ffmpeg: a "cópia" é outro arquivo com conteúdo diferente
+            self.copias.append(nivel)
+            copia = Path(self._tmp.name) / f"copia{nivel}.mp4"
+            copia.write_bytes(bytes([nivel + 1]) * 300)
+            return copia
+        self.preparar = preparar
 
     def publicar(self, ig, **kw):
         kw.setdefault("url", URL)
+        kw.setdefault("preparar", self.preparar)
         return ia.publicar_clipe(ig, "1784", self.cid, fila=self.fila, dims=self.dims, **kw)
+
+    def test_upload_manda_a_copia_para_o_instagram_e_nao_o_original(self):
+        corpos = []
+
+        def h(m, u, p, d):
+            if u.startswith("https://rupload.facebook.com/"):
+                corpos.append(d.read())
+            return padrao(m, u, p, d)
+        ig, _ = cliente(h, token=TOKEN_FB)
+        r = self.publicar(ig, url=None, postar=False)
+        self.assertEqual(self.copias, [0])
+        self.assertEqual(corpos, [bytes([1]) * 300])  # a cópia 720p, não os 1000 bytes do original
+        self.assertEqual(r["qualidade"], "720p")
+
+    def _recusa_n_vezes(self, n):
+        tentativas = [0]
+
+        def h(m, u, p, d):
+            if u.startswith("https://rupload.facebook.com/"):
+                tentativas[0] += 1
+                if tentativas[0] <= n:
+                    return 400, {"debug_info": {"retriable": False, "type": "ProcessingFailedError", "message": "Request processing failed"}}
+            return padrao(m, u, p, d)
+        return h
+
+    def test_recusa_passageira_repete_em_720p_sem_gerar_a_copia_de_novo(self):
+        ig, http = cliente(self._recusa_n_vezes(1), token=TOKEN_FB)
+        r = self.publicar(ig, url=None, postar=False)
+        self.assertEqual(self.copias, [0])  # a cópia 720p foi gerada uma vez só
+        self.assertEqual(r["qualidade"], "720p")
+        self.assertEqual(len(http.com("/media", "POST")), 2)  # um contêiner por tentativa
+
+    def test_recua_para_540p_se_a_meta_recusa_o_720p_duas_vezes(self):
+        ig, http = cliente(self._recusa_n_vezes(2), token=TOKEN_FB)
+        r = self.publicar(ig, url=None, postar=False)
+        self.assertEqual(self.copias, [0, 1])
+        self.assertEqual(r["qualidade"], "540p")
+        self.assertEqual(len(http.com("/media", "POST")), 3)
+
+    def test_refazer_descarta_o_conteiner_antigo(self):
+        self.fila.mudar(self.cid, instagram={"estado": "pronto_para_postar", "conteiner": "C9", "qualidade": "540p"})
+        ig, http = cliente(token=TOKEN_FB)
+        r = self.publicar(ig, url=None, postar=False, refazer=True)
+        self.assertEqual(len(http.com("/media", "POST")), 1)  # criou outro em vez de reaproveitar
+        self.assertEqual(r["qualidade"], "720p")
+
+    def test_todas_recusadas_diz_o_motivo_e_nao_publica(self):
+        def h(m, u, p, d):
+            if u.startswith("https://rupload.facebook.com/"):
+                return 400, {"debug_info": {"retriable": False, "type": "ProcessingFailedError", "message": "Request processing failed"}}
+            return padrao(m, u, p, d)
+        ig, http = cliente(h, token=TOKEN_FB)
+        with self.assertRaises(ia.InstagramErro) as cm:
+            self.publicar(ig, url=None, postar=True)
+        self.assertIn("ProcessingFailedError", str(cm.exception))
+        self.assertEqual(http.com("/media_publish"), [])
+        c = self.fila.clipe(self.cid)
+        self.assertEqual(c["estado"], "aprovado")
+        self.assertNotIn("conteiner", c["instagram"])  # contêiner sem vídeo não fica registrado
+
+    def test_contêiner_de_upload_falho_nao_e_reaproveitado(self):
+        falhar = [True]
+
+        def h(m, u, p, d):
+            if u.startswith("https://rupload.facebook.com/") and falhar[0]:
+                return 400, {"debug_info": {"retriable": False, "type": "ProcessingFailedError", "message": "x"}}
+            return padrao(m, u, p, d)
+        ig, http = cliente(h, token=TOKEN_FB)
+        with self.assertRaises(ia.InstagramErro):
+            self.publicar(ig, url=None, postar=True)
+        falhar[0] = False
+        antes = len(http.com("/media", "POST"))
+        self.publicar(ig, url=None, postar=False)
+        self.assertEqual(len(http.com("/media", "POST")), antes + 1)  # criou outro, não esperou o contêiner morto
 
     def test_simulacao_nao_publica(self):
         ig, http = cliente()
