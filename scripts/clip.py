@@ -6,7 +6,8 @@ Comandos (depois do instalar, use o atalho ~/clipper-gta6/clip no lugar de "clip
   clip buscar [--quantas 7] [--dias 2] acha as maiores lives de GTA 6 que já acabaram (--dias 2 = ontem e hoje)
   clip preparar LINK [LINK…]          baixa o áudio, escuta e separa os trechos mais quentes (candidatos.txt)
   clip refinar LIVE [--modelo small]  escuta de novo só os trechos quentes com modelo melhor (refaz candidatos.txt)
-  clip escolher LIVE [--manter 3]     junta os momentos que a IA escreveu e fica com os melhores
+  clip olhar LIVE                     mede cada momento escolhido (fala, silêncio, jogo parado) e gera quadros pra olhar
+  clip escolher LIVE [--manter 3]     junta os momentos que a IA escreveu e fica com os melhores (nota >= 60 e que passam no olhar)
   clip traduzir LIVE                  separa as falas de cada corte pra IA traduzir pra PT-BR (live em outro idioma)
   clip telegram AÇÃO                  configurar | testar | parear | enviar NOME | ouvir | status (só o dono é atendido)
   clip instagram AÇÃO                 configurar | testar | renovar | publicar N --url URL [--postar] | status
@@ -222,13 +223,24 @@ def refinar(a):
         print(f"\nREFINADO: releia {pasta / 'candidatos.txt'} (agora com a escuta mais precisa)")
 
 
+def olhar(a):
+    """Mede cada momento escolhido (fala, silêncio, jogo parado) e gera a folha de quadros pra IA olhar."""
+    import tarefa
+    pasta = pasta_da_live(a.live)
+    if not (pasta / "momentos").exists() or not list((pasta / "momentos").glob("*.json")):
+        sys.exit("Escreva antes os momentos em momentos/candidatos.json (veja o SKILL.md).")
+    (pasta / ".olhar.feito").unlink(missing_ok=True)  # sempre reavalia; o que já foi baixado e escutado é reaproveitado
+    if _rodar_trabalho(pasta, "olhar", [str(pasta), a.modelo or "small"], a.esperar):
+        print(f"\nOLHADO: leia {pasta / 'olhar.txt'} e olhe as folhas de quadros (PNG). Depois rode: escolher {pasta.name} --manter N")
+
+
 def escolher(a):
     import tarefa
     from cortar import escolher as esc
     pasta = pasta_da_live(a.live)
     if not (pasta / "candidatos.txt").exists():
         sys.exit("Essa live ainda não terminou de ser escutada. Rode antes: preparar LINK")
-    esc(pasta, a.manter, auto=a.auto)
+    esc(pasta, a.manter, auto=a.auto, ignorar_trava=a.ignorar_trava)
     tarefa.limpar(pasta, "fazer")  # escolheu de novo: o próximo 'fazer' monta o que mudou
     tarefa.limpar(pasta, "traduzir")  # e as falas dos cortes novos precisam ser separadas de novo
     print(f"\nPróximo: fazer {pasta.name}")
@@ -339,6 +351,9 @@ def _trabalho(a):
         modelo, idioma, trechos = (a.args[1] or None), (a.args[2] or None), int(a.args[3] or 12)
         refino = (a.args[4] if len(a.args) > 4 else "1") != "0"
         tarefa.executar(pasta, "preparar", lambda: trabalho_preparar(pasta, modelo, idioma, trechos, refino))
+    elif a.nome == "olhar":
+        from olhar import olhar as olha
+        tarefa.executar(pasta, "olhar", lambda: olha(pasta, a.args[1] or "small"))
     elif a.nome == "traduzir":
         from cortar import traduzir as traduz
         tarefa.executar(pasta, "traduzir", lambda: traduz(pasta, a.args[1] or "small"))
@@ -362,7 +377,7 @@ def status(_):
         nm = len(list((p / "momentos").glob("bloco_*.json")))
         esc = ler_json(p / "escolhidos.json", {}).get("cortes")
         prontos = len(list((CORTES / p.name).glob("corte_*.mp4")))
-        rodando = [n for n in ("preparar", "refinar", "traduzir", "fazer") if (p / f".{n}.pid").exists()]
+        rodando = [n for n in ("preparar", "refinar", "olhar", "traduzir", "fazer") if (p / f".{n}.pid").exists()]
         escutado = "sim" if (p / "candidatos.txt").exists() else f"{len(list((p / 'escuta').glob('*.json')))} partes"
         print(f"{p.name}\n  {info.get('title', '')}\n  escutada: {escutado} | escolhidos: "
               f"{len(esc) if esc else 0} | cortes prontos: {prontos}"
@@ -403,7 +418,7 @@ def main():
     p.add_argument("links", nargs="+")
     p.add_argument("--modelo", default=None, help="modelo de escuta (padrão: base; tiny em PC fraco)")
     p.add_argument("--idioma", default=None, help="pt, en… (vazio = detecta sozinho)")
-    p.add_argument("--trechos", type=int, default=12, help="quantos trechos quentes a IA vai ler")
+    p.add_argument("--trechos", type=int, default=20, help="quantos trechos quentes a IA vai ler (funil: 20 em vez de 12)")
     p.add_argument("--esperar", type=int, default=None, help="segundos acompanhando antes de devolver")
     p.add_argument("--sem-refino", action="store_true", help="não escuta de novo os trechos quentes com modelo melhor")
     p.set_defaults(f=preparar)
@@ -417,7 +432,13 @@ def main():
     e.add_argument("live")
     e.add_argument("--manter", type=int, default=3)
     e.add_argument("--auto", action="store_true", help="ignora a IA e usa os trechos mais quentes")
+    e.add_argument("--ignorar-trava", action="store_true", help="não descarta o que o 'olhar' marcou como NÃO PASSA")
     e.set_defaults(f=escolher)
+    ol = sub.add_parser("olhar")
+    ol.add_argument("live")
+    ol.add_argument("--modelo", default=None, help="modelo da escuta dos momentos (padrão: small)")
+    ol.add_argument("--esperar", type=int, default=None)
+    ol.set_defaults(f=olhar)
     f = sub.add_parser("fazer")
     f.add_argument("live")
     f.add_argument("--modelo", default="small", help="modelo da legenda dos cortes")

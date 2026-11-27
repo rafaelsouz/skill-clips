@@ -24,7 +24,8 @@ CHAVES = {"inicio": ("inicio", "início", "start", "comeco", "começo", "de"),
           "fim": ("fim", "end", "final", "ate", "até"),
           "nota": ("nota", "score", "pontos", "pontuacao", "pontuação"),
           "titulo": ("titulo", "título", "title", "gancho", "hook"),
-          "post": ("post", "legenda", "caption", "descricao", "descrição")}
+          "post": ("post", "legenda", "caption", "descricao", "descrição"),
+          "miolo": ("cortar_miolo", "miolo", "cortes_secos")}
 
 
 def ler_tolerante(arq):
@@ -81,7 +82,48 @@ def momentos_automaticos(pasta):
     return out
 
 
-def escolher(pasta, manter=3, minimo=20, maximo=90, auto=False):
+NOTA_MINIMA = 60       # abaixo disso o momento não entra (regra do prompt, agora também no código)
+MIN_APOS_MIOLO = 15.0  # depois de tirar o miolo morto, o corte tem que ficar com pelo menos isso (s)
+
+
+def _ler_miolo(valor, s, e):
+    """cortar_miolo: [["hh:mm:ss","hh:mm:ss"], ...] (hora da live) = pedaços mortos do MEIO do corte, removidos com um
+    corte seco. Devolve a lista ordenada, sem sobreposição e só dentro do corte (3 s de folga em cada ponta)."""
+    if not isinstance(valor, list):
+        return []
+    pares = []
+    for p in valor:
+        try:
+            a, b = segundos(p[0]), segundos(p[1])
+        except (TypeError, ValueError, IndexError, AttributeError, KeyError):
+            continue
+        if b < a:
+            a, b = b, a
+        a, b = max(a, s + 3), min(b, e - 3)
+        if b - a >= 2:
+            pares.append([a, b])
+    pares.sort()
+    fundidos = []
+    for a, b in pares:
+        if fundidos and a <= fundidos[-1][1]:
+            fundidos[-1][1] = max(fundidos[-1][1], b)
+        else:
+            fundidos.append([a, b])
+    if (e - s) - sum(b - a for a, b in fundidos) < MIN_APOS_MIOLO:
+        return []  # sobraria pouco corte
+    return [[round(a, 2), round(b, 2)] for a, b in fundidos]
+
+
+def chave_olhar(m):
+    """Identifica um momento (início, fim e miolo) no olhar.json: se o momento mudar, o resultado antigo não vale."""
+    miolo = m.get("_miolo") or []
+    sufixo = "-m" + hashlib.md5(json.dumps(miolo).encode()).hexdigest()[:6] if miolo else ""
+    return f"{round(m['_s'])}-{round(m['_e'])}{sufixo}"
+
+
+def ler_momentos(pasta, minimo=20, maximo=90, auto=False):
+    """Lê os momentos que a IA escreveu (momentos/*.json) e normaliza: tempos em segundos, título e post limpos, nota,
+    miolo. Devolve (lista de momentos, avisos). Não aplica nota mínima nem a trava: isso é do escolher."""
     dur_live = float(ler_json(pasta / "info.json", {}).get("duration") or 10 ** 7)
     brutos, ruins = [], []
     for arq in sorted((pasta / "momentos").glob("*.json")):
@@ -117,9 +159,34 @@ def escolher(pasta, manter=3, minimo=20, maximo=90, auto=False):
         post = limpar_texto(_campo(m, "post") or "", 400)
         if "#gta6" not in post.lower():
             post = (post + " #gta6 #gtavi #gta #cortes").strip()
-        todos.append({**m, "titulo": titulo, "post": post, "nota": nota, "_s": s, "_e": e, "_bloco": origem})
+        todos.append({**m, "titulo": titulo, "post": post, "nota": nota, "_s": s, "_e": e, "_bloco": origem,
+                      "_miolo": _ler_miolo(_campo(m, "miolo"), s, e)})
+    return todos, ruins
+
+
+def escolher(pasta, manter=3, minimo=20, maximo=90, auto=False, ignorar_trava=False):
+    todos, ruins = ler_momentos(pasta, minimo, maximo, auto)
     if ruins:
         print("ATENÇÃO, pulei:", *ruins, sep="\n  ")
+    descartados = []
+    if not auto:
+        olhar = ler_json(pasta / "olhar.json", None)
+        if olhar is None:
+            print("ATENÇÃO: você ainda não rodou 'olhar' nesses momentos (jogo parado, silêncio, quadros). "
+                  f"Rode: olhar {pasta.name}")
+        aprovados = []
+        for m in todos:
+            if m["nota"] < NOTA_MINIMA:
+                descartados.append(f"nota {m['nota']:.0f} (< {NOTA_MINIMA}): {m['titulo']}")
+                continue
+            r = (olhar or {}).get(chave_olhar(m))
+            if r and r.get("ok") is False and not ignorar_trava:
+                descartados.append(f"não passou na trava ({'; '.join(r.get('motivos', []))}): {m['titulo']}")
+                continue
+            aprovados.append(m)
+        todos = aprovados
+    if descartados:
+        print("\nDescartei:", *descartados, sep="\n  ")
     todos.sort(key=lambda m: -m["nota"])
     escolhidos = []
     for m in todos:
@@ -130,9 +197,11 @@ def escolher(pasta, manter=3, minimo=20, maximo=90, auto=False):
             break
     escolhidos.sort(key=lambda m: m["_s"])
     gravar_json(pasta / "escolhidos.json", {"possiveis": len(todos), "cortes": escolhidos})
-    print(f"\nAchei {len(todos)} momentos possíveis e fiquei com os {len(escolhidos)} melhores:")
+    print(f"\nSobraram {len(todos)} momentos bons e fiquei com {len(escolhidos)}" +
+          (f" (você pediu {manter}: não encho o resto com momento fraco):" if len(escolhidos) < manter else ":"))
     for i, m in enumerate(escolhidos, 1):
-        print(f"  {i}. [{hms(m['_s'])}–{hms(m['_e'])}] nota {m['nota']:.0f}  {m.get('titulo', '')}")
+        corte = f" · tira {sum(b - a for a, b in m['_miolo']):.0f} s do miolo" if m.get("_miolo") else ""
+        print(f"  {i}. [{hms(m['_s'])}–{hms(m['_e'])}] nota {m['nota']:.0f}  {m.get('titulo', '')}{corte}")
     return escolhidos
 
 
@@ -305,12 +374,16 @@ def tem_video(arq):
     return r.stdout.strip().isdigit() and int(r.stdout.strip()) > 10
 
 
-def baixar_trecho(pasta, url, s, e, destino):
+FORMATO_LEVE = "bv*[height<=480][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=480]+ba/b[height<=480]/worst"  # pro 'olhar'
+
+
+def baixar_trecho(pasta, url, s, e, destino, formato=None):
     """Baixa só os segundos do corte. 1º jeito: o baixador pede só o pedaço. 2º jeito: o ffmpeg pula direto pro
     minuto certo no link do vídeo. Nunca baixa a live inteira (uma live de 10 h teria dezenas de GB)."""
+    formato = formato or FORMATO
     print("      baixando só esse pedaço do vídeo…", flush=True)
     try:
-        rodar(ytdlp() + ["-f", FORMATO, "--no-playlist", "--no-warnings", "-q", "--download-sections",
+        rodar(ytdlp() + ["-f", formato, "--no-playlist", "--no-warnings", "-q", "--download-sections",
                          f"*{s:.2f}-{e:.2f}", "--force-keyframes-at-cuts", "--merge-output-format", "mp4",
                          "-o", str(destino), "--", url], timeout=1800)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -319,7 +392,7 @@ def baixar_trecho(pasta, url, s, e, destino):
         return
     destino.unlink(missing_ok=True)
     print("      tentando de outro jeito (pulando direto pro minuto do corte)…", flush=True)
-    r = subprocess.run(ytdlp() + ["-f", FORMATO, "-g", "--no-playlist", "--no-warnings", "--", url],
+    r = subprocess.run(ytdlp() + ["-f", formato, "-g", "--no-playlist", "--no-warnings", "--", url],
                        capture_output=True, text=True)
     links = [l for l in r.stdout.split() if l.startswith("http")]
     if links:
@@ -341,8 +414,52 @@ def baixar_trecho(pasta, url, s, e, destino):
 
 
 # ================================================================ trecho, falas e tradução
+def _chave_corte(m):
+    """Identifica o corte (momento + miolo removido): legenda, falas e vídeo pronto só valem se isso não mudou."""
+    miolo = m.get("_miolo") or []
+    sufixo = "-m" + hashlib.md5(json.dumps(miolo).encode()).hexdigest()[:6] if miolo else ""
+    return f"{m['_s']:.2f}-{m['_e']:.2f}{sufixo}"
+
+
+def duracao(arq):
+    return float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                 str(arq)], capture_output=True, text=True).stdout.strip())
+
+
+def intervalos_mantidos(dur, miolo_rel):
+    """Pedaços do trecho que ficam (de 0 a dur) depois de tirar o miolo [(a, b), ...] (tempos relativos ao trecho)."""
+    mantidos, atual = [], 0.0
+    for a, b in sorted(miolo_rel):
+        if a > atual:
+            mantidos.append((atual, a))
+        atual = max(atual, b)
+    if atual < dur:
+        mantidos.append((atual, dur))
+    return mantidos
+
+
+def aplicar_miolo(trecho, miolo_rel, saida):
+    """Corte seco: junta só os pedaços que ficam do trecho (vídeo e áudio) num arquivo novo."""
+    trecho = Path(trecho)
+    mantidos = intervalos_mantidos(duracao(trecho), miolo_rel)
+    audio = tem_audio(trecho)
+    partes, juntar = [], ""
+    for k, (a, b) in enumerate(mantidos):
+        partes.append(f"[0:v]trim={a:.3f}:{b:.3f},setpts=PTS-STARTPTS[v{k}]")
+        juntar += f"[v{k}]"
+        if audio:
+            partes.append(f"[0:a]atrim={a:.3f}:{b:.3f},asetpts=PTS-STARTPTS[a{k}]")
+            juntar += f"[a{k}]"
+    fc = ";".join(partes) + f";{juntar}concat=n={len(mantidos)}:v=1:a={1 if audio else 0}[v]" + ("[a]" if audio else "")
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(trecho), "-filter_complex", fc, "-map", "[v]"]
+    if audio:
+        cmd += ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"]
+    subprocess.run(cmd + ["-c:v", "libx264", "-crf", "14", "-preset", "veryfast", str(saida)], check=True)
+
+
 def _trecho_do_corte(pasta, info, i, m):
-    """Baixa (ou reaproveita) só os segundos do corte i. Devolve (pasta do corte, arquivo do trecho)."""
+    """Baixa (ou reaproveita) só os segundos do corte i. Devolve (pasta do corte, arquivo do trecho). Se o momento tem
+    cortar_miolo, devolve o trecho JÁ sem o miolo morto (a legenda e o vídeo pronto usam esse)."""
     s, e = m["_s"], m["_e"]
     tdir = pasta / f"corte_{i:02d}"
     tdir.mkdir(exist_ok=True)
@@ -354,12 +471,20 @@ def _trecho_do_corte(pasta, info, i, m):
     if not trecho.exists():
         baixar_trecho(pasta, info["url"], s, e, trecho)
         (tdir / "de.txt").write_text(f"{s:.2f}-{e:.2f}")
-    return tdir, trecho
+    miolo = [[a - s, b - s] for a, b in (m.get("_miolo") or [])]
+    if not miolo:
+        return tdir, trecho
+    editado, sig = tdir / "trecho_editado.mp4", tdir / "miolo.txt"
+    if not editado.exists() or not sig.exists() or sig.read_text() != _chave_corte(m):
+        print("      tirando o miolo morto (corte seco)…", flush=True)
+        aplicar_miolo(trecho, miolo, editado)
+        sig.write_text(_chave_corte(m))
+    return tdir, editado
 
 
 def _palavras_do_corte(tdir, trecho, m, idioma, modelo):
     """Palavras com tempo (escuta do próprio trecho). Guarda em palavras.json: não escuta duas vezes."""
-    chave = f"{m['_s']:.2f}-{m['_e']:.2f}-{idioma}-{modelo}"
+    chave = f"{_chave_corte(m)}-{idioma}-{modelo}"
     cache = ler_json(tdir / "palavras.json", {})
     if cache.get("chave") == chave:
         return [tuple(p) for p in cache["palavras"]]
@@ -400,7 +525,7 @@ def traduzir(pasta, modelo_legenda="small"):
         print(f"\n[4/4] Separando as falas do corte {i}/{len(escolhidos)}: {m.get('titulo', '')}", flush=True)
         tdir, trecho = _trecho_do_corte(pasta, info, i, m)
         falas = _segmentar(_palavras_do_corte(tdir, trecho, m, idioma, modelo_legenda))
-        chave = f"{m['_s']:.2f}-{m['_e']:.2f}"
+        chave = _chave_corte(m)
         if ler_json(tdir / "falas.json", {}).get("chave") != chave:
             (tdir / "pt.json").unlink(missing_ok=True)  # as falas mudaram: a tradução antiga não serve mais
         gravar_json(tdir / "falas.json", {"chave": chave, "falas": falas})
@@ -423,7 +548,7 @@ def faltando_traducao(pasta):
     for i, m in enumerate(ler_json(pasta / "escolhidos.json", {}).get("cortes") or [], 1):
         tdir = pasta / f"corte_{i:02d}"
         dados = ler_json(tdir / "falas.json", {})
-        if dados.get("chave") != f"{m['_s']:.2f}-{m['_e']:.2f}":
+        if dados.get("chave") != _chave_corte(m):
             problemas.append(f"corte {i}: ainda não separei as falas (rode 'traduzir')")
             continue
         pt = ler_json(tdir / "pt.json", None)
@@ -476,7 +601,7 @@ def fazer(pasta, modelo_legenda="small"):
         tdir = pasta / f"corte_{i:02d}"
         tdir.mkdir(exist_ok=True)
         saida = destino / f"corte_{i:02d}.mp4"
-        assinatura = (f"{s:.2f}-{e:.2f}-{m.get('titulo', '')}-{RENDER_V}-{marca}"
+        assinatura = (f"{_chave_corte(m)}-{m.get('titulo', '')}-{RENDER_V}-{marca}"
                       + (f"-{legenda_idioma()}-{_hash_pt(tdir)}" if traduz else ""))
         if saida.exists() and (tdir / "feito.txt").exists() and (tdir / "feito.txt").read_text(encoding="utf-8") == assinatura:
             print("      já estava pronto", flush=True)
@@ -500,7 +625,7 @@ def fazer(pasta, modelo_legenda="small"):
         print("      volume: " + ("normalizado pra -14 LUFS" if vol else "sem áudio"), flush=True)
         # bitrate limitado: o corte cabe em ~46 MB (limite do Telegram é 50) e não passa de 4,5 Mbps
         vmax = int(max(1500, min(4500, TAMANHO_MAX_MB * 8000 / max(dur, 1) - 200)))
-        rodar(["ffmpeg", "-y", "-loglevel", "error", "-i", "trecho.mp4", "-filter_complex",
+        rodar(["ffmpeg", "-y", "-loglevel", "error", "-i", trecho.name, "-filter_complex",
                filtro(W, H, rosto), "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium",
                "-crf", "20", "-maxrate", f"{vmax}k", "-bufsize", f"{2 * vmax}k", "-r", "30",
                *(["-af", vol] if vol else []), "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
