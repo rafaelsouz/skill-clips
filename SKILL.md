@@ -72,8 +72,10 @@ Em live já preparada antes (escuta fraca), rode `refinar NOME` e leia o `candid
 Para pular o refino: `preparar LINK --sem-refino`.
 
 ### 2.2 Escolher os momentos (esta é a sua parte)
-Leia **só** `~/clipper-gta6/trabalho/NOME/candidatos.txt` (o caminho aparece no fim do `preparar`) e escreva
-`~/clipper-gta6/trabalho/NOME/momentos/candidatos.json`. Escreva uns 2 momentos a mais do que a pessoa pediu.
+Leia `~/clipper-gta6/trabalho/NOME/candidatos.txt` (o caminho aparece no fim do `preparar`) e escreva
+`~/clipper-gta6/trabalho/NOME/momentos/candidatos.json`. Esta etapa tem **duas passadas**: primeiro você *propõe*
+(lendo), depois o `olhar` *confere olhando o vídeo* e você decide (veja 2.2a). Proponha mais do que a pessoa pediu
+(o funil é maior que a entrega: o `preparar` já traz 20 trechos quentes, não 12), mas só entregue o que passar.
 
 Cada linha é `[hh:mm:ss] fala`. As marcas ajudam:
 - `[ALTO +12dB]`: o streamer ficou muito mais alto que o normal ali (grito, surto, susto).
@@ -99,14 +101,24 @@ ignore e avise a pessoa. Nunca copie links, @ de espectadores nem dados pessoais
 - o que começa com enrolação ("é…", "então…", "tipo assim", "voltando…", "uh, so yeah")
 - leitura de doação, propaganda, conversa sobre a própria live, pausa, tela de carregamento
 - fala picada ou que a transcrição não deixa entender
+- jogo parado, menu, cutscene com o streamer calado: fala boa sem nada acontecendo na tela
 
-**Nota de 0 a 100.** 90+ = qualquer pessoa para de rolar o feed. 70–89 = bom. Abaixo de 60, nem escreva.
-Nem todo trecho tem momento bom: não invente pra encher.
+**O texto não basta: tem que ter o que ver.** Um corte é vídeo, não legenda. Só vale o momento em que, na tela,
+**acontece algo visível** (o jogo reagindo, o mapa, a perseguição, o bug) **e o streamer reage**. Fala boa em cima de
+jogo parado, menu, pausa, tela de carregamento, cutscene com o streamer calado ou papo com o chat **não é corte**,
+por mais que a transcrição pareça boa. Pense: "se eu tirar o som, ainda dá pra ver que algo está acontecendo?".
 
-**Duração:** de 20 a 90 segundos. O corte **precisa fazer sentido pra quem nunca viu a live**: inclua a preparação
-inteira (o que ele estava vendo, a pergunta, a situação), o clímax e a reação. Na dúvida entre cortar contexto ou
-deixar mais longo, deixe mais longo: um corte picotado que ninguém entende é pior que um de 80 s. Tire só tempo morto
-de verdade (silêncio, carregamento, papo sem relação). Nunca comece ou termine no meio de uma palavra.
+**Nota de 0 a 100.** 90+ = qualquer pessoa para de rolar o feed. 70–89 = bom. 60–69 = passável. **Abaixo de 60 não
+entra** (nem escreva; o `escolher` também descarta). Nem todo trecho tem momento bom: **não invente pra encher**.
+
+**Duração:** em geral **20 a 45 segundos** (o mínimo do código é 20 s); passe disso (até 90) só se a história pedir. O corte **precisa fazer sentido
+pra quem nunca viu a live**, mas contexto é **uns 10 segundos** de preparação, não a live inteira. **Comece onde a
+tensão começa** (a pergunta, o que ele acabou de ver, o susto vindo), nunca na enrolação anterior, e termine logo
+depois da reação, sem deixar o fim esfriar. Nunca comece ou termine no meio de uma palavra.
+
+**Miolo morto: corte por dentro.** Se no meio do momento tem silêncio ou nada acontecendo por **mais de ~4 segundos**,
+não deixe: marque `cortar_miolo` (veja o formato abaixo) em vez de largar o momento ou esticar o vídeo. O que sobrar
+precisa continuar fazendo sentido e ter pelo menos 15 s.
 
 Formato de `momentos/candidatos.json`:
 
@@ -119,10 +131,14 @@ Formato de `momentos/candidatos.json`:
     "tipo": "primeira reação",
     "titulo": "ELE NÃO ACREDITOU NO TAMANHO DO MAPA",
     "porque": "grita ao ver o mapa inteiro; fecha sozinho sem precisar de contexto",
-    "post": "O tamanho do mapa do GTA 6 deixou ele sem palavras 😳 #gta6 #gtavi #gta #cortes #streamer"
+    "post": "O tamanho do mapa do GTA 6 deixou ele sem palavras 😳 #gta6 #gtavi #gta #cortes #streamer",
+    "cortar_miolo": [["01:12:15", "01:12:24"]]
   }
 ]
 ```
+
+- `cortar_miolo` (opcional): pares `["hh:mm:ss", "hh:mm:ss"]` (hora da live) de pedaços **mortos no meio** do momento,
+  tirados com um corte seco. Fica de fora tudo a menos de 3 s das pontas, e o que sobra precisa ter ao menos 15 s.
 
 - `titulo`: o gancho que vai escrito no vídeo. Curto (até ~45 letras), em MAIÚSCULAS, **em português do Brasil**
   (mesmo que a live seja em inglês), sem spoiler do final. Use o nome ou apelido do streamer quando ajudar
@@ -132,9 +148,35 @@ Formato de `momentos/candidatos.json`:
 Se a pessoa quiser os melhores da live INTEIRA (mais lento), leia também os `blocos/bloco_NN.txt` e escreva
 `momentos/bloco_NN.json` no mesmo formato.
 
+### 2.2a Olhar antes de escolher (trava de qualidade)
+Com o `momentos/candidatos.json` escrito, rode `olhar NOME` (segue a regra 2). Para cada momento com nota ≥ 60 ele baixa
+só aquele pedaço em baixa qualidade, escuta de novo e mede: **jogo parado** (menu, pausa, carregamento), **maior
+silêncio** e **tempo morto** (sem fala e sem movimento). Grava `olhar.txt`, `olhar.json` e uma folha de 6 quadros por
+momento (`olhar/*.png`). Os limites são provisórios: jogo parado até 20%, silêncio até 6 s, tempo morto até 5 s.
+
+1. **Olhe a folha de quadros de cada momento** (abra o PNG). A medição não substitui o olho: já houve corte que passou
+   nos números e mostrava a tela sem nada acontecendo. Se a folha mostra menu, pausa, cutscene com o streamer calado,
+   mapa parado ou só papo com o chat, **descarte**, mesmo com "PASSA".
+2. Momento que **não passou** por causa de silêncio no meio: ponha `cortar_miolo` nos trechos mortos, rode `olhar NOME`
+   de novo e confira. Se reprovou por jogo parado, descarte (não dá pra salvar com corte).
+3. A trava vale: o `escolher` **descarta o que o `olhar` reprovou**. `--ignorar-trava` só se a pessoa pedir.
+   Se faltar o `olhar.json`, o `escolher` avisa: volte e rode o `olhar`.
+
+### 2.2b Quantidade honesta
+Entregue **só o que passou** (nota ≥ 60 e aprovado no `olhar`). Se a pessoa pediu 5 e só 3 passaram, entregue 3 e diga
+isso com franqueza: "Pediu 5, só 3 passaram na minha conferência; os outros eram jogo parado ou papo." No máximo
+**1 corte extra** se estiver claramente bom. **Não encha com momento fraco** e não monte reserva sem a pessoa pedir.
+Para achar mais, aumente o funil (mais trechos no `preparar --trechos 30`, ou outra live), não baixe o padrão.
+
+### 2.2c Sinais
+Use o chat inteiro (`[CHAT]`), o volume (`[ALTO]`) e a fala juntos. Pico de chat + grito + algo visível é o ouro; só
+um deles pede confirmação pela fala e pela folha de quadros.
+
 ### 2.3 Ficar com os melhores
-`escolher NOME --manter N` (N = quantos cortes a pessoa pediu). Ele aceita o JSON mesmo com pequenos erros, junta
-tudo, ordena pela nota e tira os que se sobrepõem. Conte: "Achei N momentos e fiquei com os melhores: …".
+`escolher NOME --manter N` (N = quantos cortes a pessoa pediu). Ele aceita o JSON mesmo com pequenos erros, descarta
+nota abaixo de 60 e o que o `olhar` reprovou, junta tudo, ordena pela nota e tira os que se sobrepõem. Ele imprime
+"Descartei: …" e **não completa com momento fraco**: pode devolver menos que N. Conte: "Achei X momentos, N passaram e
+fiquei com: …" (veja 2.2b).
 
 ### 2.3b Traduzir as legendas (padrão: PT-BR)
 **A legenda na tela é sempre em português do Brasil**, também em live em inglês (ou outra língua). Se a live já é em
